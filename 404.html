@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: system-ui, sans-serif;
+      background: linear-gradient(135deg, #fae8ff 0%, #e0e7ff 100%);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .content {
+      text-align: center;
+      z-index: 1;
+      padding: 2.5rem;
+      background: rgba(255, 255, 255, 0.85);
+      border-radius: 2rem;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+      border: 3px solid #c084fc;
+    }
+
+    h1 {
+      font-size: 5rem;
+      margin: 0;
+      color: #7c3aed;
+      text-shadow: 3px 3px 0 #c084fc;
+    }
+
+    p {
+      font-size: 1.5rem;
+      color: #6b21a8;
+      margin: 1.5rem 0 2rem;
+      font-weight: 600;
+    }
+
+    .tools-link {
+      display: inline-block;
+      padding: 1rem 2rem;
+      background: #7c3aed;
+      color: white;
+      text-decoration: none;
+      border-radius: 1rem;
+      font-weight: 600;
+      font-size: 1.2rem;
+      transition: all 0.3s;
+      border: 3px solid #6d28d9;
+    }
+
+    .tools-link:hover {
+      transform: translateY(-4px) scale(1.05);
+      box-shadow: 0 8px 20px rgba(124, 58, 237, 0.3);
+    }
+
+    .falling-tool {
+      position: absolute;
+      font-size: 2.5rem;
+      animation: fall linear infinite;
+      z-index: 0;
+      top: -50px;
+    }
+
+    @keyframes fall {
+      0% {
+        transform: translateY(-20vh) rotate(0deg) scale(1);
+      }
+      50% {
+        transform: translateY(50vh) rotate(180deg) scale(1.2);
+      }
+      100% {
+        transform: translateY(120vh) rotate(360deg) scale(1);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="content">
+    <h1>404</h1>
+    <p>We couldn't find the tool you're looking for</p>
+    <a href="/tools" class="tools-link">View All Tools</a>
+  </div>
+
+  <script>
+    const items = [
+      '🔨', '🪛', '🔧', '⚒️', '⛏️', '🛠️',
+      '🎨', '🎭', '🎮', '🎲',
+      '⌨️', '💻', '🎸', '🖨️'
+    ];
+    
+    const colors = ['#7c3aed', '#6d28d9', '#5b21b6', '#c084fc', '#a855f7'];
+    
+    function createTool() {
+      const tool = document.createElement('div');
+      tool.className = 'falling-tool';
+      tool.textContent = items[Math.floor(Math.random() * items.length)];
+      tool.style.left = Math.random() * 100 + 'vw';
+      tool.style.color = colors[Math.floor(Math.random() * colors.length)];
+      tool.style.animationDuration = (Math.random() * 4 + 3) + 's';
+      tool.style.transform = `scale(${Math.random() * 0.5 + 0.8})`;
+      document.body.appendChild(tool);
+      
+      tool.addEventListener('animationend', () => {
+        tool.remove();
+      });
+    }
+
+    // Create tools more frequently
+    setInterval(createTool, 200);
+    // Start with more tools
+    for (let i = 0; i < 15; i++) createTool();
+  </script>
+</body>
+</html>
