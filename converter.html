@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Converter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --secondary: #14b8a6;
+            --background: #f8fafc;
+            --surface: #ffffff;
+            --text: #1e293b;
+            --border: #e2e8f0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--background);
+            color: var(--text);
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 600px;
+            width: 100%;
+            background: var(--surface);
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        }
+
+        h1 {
+            font-size: 1.875rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            text-align: center;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .dropzone {
+            border: 2px dashed var(--border);
+            border-radius: 0.75rem;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+            background: var(--background);
+        }
+
+        .dropzone.drag-over {
+            border-color: var(--primary);
+            background: #f0f9ff;
+        }
+
+        .dropzone p {
+            margin: 0.5rem 0;
+            color: #64748b;
+        }
+
+        .paste-link {
+            color: var(--primary);
+            text-decoration: none;
+            display: inline-block;
+            margin-top: 0.5rem;
+            font-size: 0.875rem;
+        }
+
+        .paste-link:hover {
+            color: var(--primary-dark);
+            text-decoration: underline;
+        }
+
+        .output-options {
+            margin-top: 2rem;
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+        }
+
+        .format-button {
+            background: transparent;
+            border: 1px solid var(--border);
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: var(--text);
+        }
+
+        .format-button:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .format-button.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+
+        .convert-button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 1.5rem;
+            width: 100%;
+            font-size: 1rem;
+        }
+
+        .convert-button:hover {
+            background: var(--primary-dark);
+        }
+
+        .convert-button:disabled {
+            background: var(--border);
+            cursor: not-allowed;
+        }
+
+        .preview {
+            margin-top: 1.5rem;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            background: var(--background);
+            max-height: 200px;
+            overflow: auto;
+        }
+
+        .preview img {
+            max-width: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Converter</h1>
+        <div id="dropzone" class="dropzone">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            <p>Drop files here or click to upload</p>
+            <p class="paste-link" id="pasteLink">Or paste from clipboard</p>
+        </div>
+        <div id="preview" class="preview" style="display: none;"></div>
+        <div class="output-options">
+            <button class="format-button" data-format="jpg">JPG</button>
+            <button class="format-button" data-format="png">PNG</button>
+            <button class="format-button" data-format="pdf">PDF</button>
+        </div>
+        <button id="convertBtn" class="convert-button" disabled>Convert</button>
+    </div>
+
+    <script>
+        const dropzone = document.getElementById('dropzone');
+        const preview = document.getElementById('preview');
+        const convertBtn = document.getElementById('convertBtn');
+        const pasteLink = document.getElementById('pasteLink');
+        let currentFile = null;
+        
+        // Load last selected format from localStorage
+        const lastFormat = localStorage.getItem('lastFormat') || 'jpg';
+        document.querySelector(`[data-format="${lastFormat}"]`).classList.add('active');
+
+        // Dropzone event listeners
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.classList.add('drag-over');
+        });
+
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.classList.remove('drag-over');
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('drag-over');
+            handleFile(e.dataTransfer.files[0]);
+        });
+
+        dropzone.addEventListener('click', () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*,.svg,.html,.pdf';
+            input.onchange = (e) => handleFile(e.target.files[0]);
+            input.click();
+        });
+
+        // Paste functionality
+        pasteLink.addEventListener('click', async () => {
+            try {
+                const clipboardData = await navigator.clipboard.readText();
+                if (clipboardData.trim().startsWith('<svg') || clipboardData.trim().startsWith('<!DOCTYPE html>')) {
+                    handlePastedContent(clipboardData);
+                }
+            } catch (err) {
+                console.error('Failed to read clipboard:', err);
+            }
+        });
+
+        // Format selection
+        document.querySelectorAll('.format-button').forEach(button => {
+            button.addEventListener('click', () => {
+                document.querySelectorAll('.format-button').forEach(btn => btn.classList.remove('active'));
+                button.classList.add('active');
+                localStorage.setItem('lastFormat', button.dataset.format);
+            });
+        });
+
+        function handleFile(file) {
+            if (!file) return;
+            
+            currentFile = file;
+            convertBtn.disabled = false;
+            preview.style.display = 'block';
+
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    preview.innerHTML = `<img src="${e.target.result}" alt="Preview">`;
+                };
+                reader.readAsDataURL(file);
+            } else {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    preview.innerText = e.target.result;
+                };
+                reader.readAsText(file);
+            }
+        }
+
+        function handlePastedContent(content) {
+            const blob = new Blob([content], { type: 'text/plain' });
+            currentFile = blob;
+            convertBtn.disabled = false;
+            preview.style.display = 'block';
+            preview.innerText = content;
+        }
+
+        convertBtn.addEventListener('click', async () => {
+            const selectedFormat = document.querySelector('.format-button.active').dataset.format;
+            
+            // Example conversion logic (in practice, you'd want to implement proper conversion)
+            if (currentFile.type.startsWith('image/')) {
+                const img = preview.querySelector('img');
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                ctx.drawImage(img, 0, 0);
+                
+                if (selectedFormat === 'pdf') {
+                    const { jsPDF } = window.jspdf;
+                    const pdf = new jsPDF();
+                    pdf.addImage(canvas.toDataURL('image/jpeg'), 'JPEG', 10, 10);
+                    pdf.save('converted.pdf');
+                } else {
+                    const dataUrl = canvas.toDataURL(`image/${selectedFormat}`);
+                    const link = document.createElement('a');
+                    link.href = dataUrl;
+                    link.download = `converted.${selectedFormat}`;
+                    link.click();
+                }
+            } else {
+                // For SVG/HTML content
+                const div = document.createElement('div');
+                div.innerHTML = await currentFile.text();
+                
+                html2canvas(div).then(canvas => {
+                    if (selectedFormat === 'pdf') {
+                        const { jsPDF } = window.jspdf;
+                        const pdf = new jsPDF();
+                        pdf.addImage(canvas.toDataURL('image/jpeg'), 'JPEG', 10, 10);
+                        pdf.save('converted.pdf');
+                    } else {
+                        const dataUrl = canvas.toDataURL(`image/${selectedFormat}`);
+                        const link = document.createElement('a');
+                        link.href = dataUrl;
+                        link.download = `converted.${selectedFormat}`;
+                        link.click();
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>
+
