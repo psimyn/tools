@@ -60,6 +60,18 @@
     overflow: hidden;
   }
   .bubble-wrap svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .bubble-wrap::before {
+    content: "";
+    position: absolute;
+    left: 6%;
+    right: 6%;
+    top: 50%;
+    height: 2px;
+    background: rgba(255, 255, 255, 0);
+    transition: background 180ms ease;
+    pointer-events: none;
+  }
+  .bubble-wrap.upright::before { background: rgba(255, 216, 77, 0.18); }
   .bubble {
     position: absolute;
     left: 50%;
@@ -196,10 +208,10 @@
   </div>
 
   <div class="readout" aria-live="polite">
-    <div><span class="label">Pitch (β)</span><span class="val" id="pitchVal">—</span></div>
-    <div><span class="label">Roll (γ)</span><span class="val" id="rollVal">—</span></div>
+    <div><span class="label">Pitch</span><span class="val" id="pitchVal">—</span></div>
+    <div><span class="label">Roll</span><span class="val" id="rollVal">—</span></div>
     <div><span class="label">Tilt</span><span class="val" id="tiltVal">—</span></div>
-    <div><span class="label">Status</span><span class="val" id="levelVal">—</span></div>
+    <div><span class="label">Mode</span><span class="val" id="modeVal">—</span></div>
   </div>
 
   <div class="controls">
@@ -218,123 +230,174 @@
   "use strict";
 
   const bubble = document.getElementById("bubble");
+  const bubbleWrap = bubble.parentElement;
   const barBubble = document.getElementById("barBubble");
   const pitchVal = document.getElementById("pitchVal");
   const rollVal = document.getElementById("rollVal");
   const tiltVal = document.getElementById("tiltVal");
-  const levelVal = document.getElementById("levelVal");
+  const modeVal = document.getElementById("modeVal");
   const statusEl = document.getElementById("status");
   const calibrateBtn = document.getElementById("calibrateBtn");
   const resetBtn = document.getElementById("resetBtn");
   const enableBtn = document.getElementById("enableBtn");
 
-  // Max travel for the bubble, as a fraction of the circle radius, at this tilt in degrees.
-  const MAX_TILT_DEG = 30;
-  const LEVEL_THRESHOLD_DEG = 1.0;
+  const MAX_TILT_DEG = 30;          // bubble maxes out at this tilt
+  const LEVEL_THRESHOLD_DEG = 1.0;  // within this, we say "LEVEL"
+  const FLAT_THRESHOLD = 0.5;       // |gvz| above this → flat posture
+  const SMOOTH = 0.18;              // EMA factor
 
-  // Smoothing (exponential moving average).
-  const SMOOTH = 0.18;
-  let smBeta = 0;
-  let smGamma = 0;
+  const DEG = 180 / Math.PI;
+  const RAD = Math.PI / 180;
+
+  // Smoothed gravity vector in DEVICE frame. Kept in device frame so a
+  // screen-orientation change (which rotates the view frame) doesn't cause a
+  // jump in the smoothing state.
+  let smGx = 0, smGy = 0, smGz = -1;
   let haveReading = false;
 
-  // Calibration offsets.
-  let offBeta = 0;
-  let offGamma = 0;
+  // Mode-specific calibration offsets. "flat" is bullseye-mode offsets for
+  // pitch + roll. "upright" stores a single roll offset for the horizon
+  // reading when the phone is held vertically.
+  const defaultOffsets = () => ({
+    flat:    { pitch: 0, roll: 0 },
+    upright: { roll: 0 },
+  });
+  let off = defaultOffsets();
   try {
     const saved = JSON.parse(localStorage.getItem("spirit-level:offsets") || "null");
-    if (saved && typeof saved.beta === "number" && typeof saved.gamma === "number") {
-      offBeta = saved.beta;
-      offGamma = saved.gamma;
-    }
+    if (saved && saved.flat && saved.upright) off = saved;
   } catch (_) { /* ignore */ }
 
   function saveOffsets() {
     try {
-      localStorage.setItem(
-        "spirit-level:offsets",
-        JSON.stringify({ beta: offBeta, gamma: offGamma })
-      );
+      localStorage.setItem("spirit-level:offsets", JSON.stringify(off));
     } catch (_) { /* ignore */ }
   }
 
   function fmtDeg(x) {
+    if (!Number.isFinite(x)) return "—";
     const s = x >= 0 ? "+" : "−";
     return s + Math.abs(x).toFixed(1) + "°";
   }
 
-  function render() {
-    const beta = smBeta - offBeta;   // front-back tilt (pitch)
-    const gamma = smGamma - offGamma; // left-right tilt (roll)
-
-    // Clamp for display.
-    const clamp = (v) => Math.max(-MAX_TILT_DEG, Math.min(MAX_TILT_DEG, v));
-    const cb = clamp(beta);
-    const cg = clamp(gamma);
-
-    // Map to percentage of radius. Positive gamma -> tilted right -> bubble goes LEFT (uphill).
-    // Positive beta -> tilted forward (top away) -> bubble goes toward the user (down in view).
-    // We invert so the bubble always moves toward the high side, like a real bullseye level.
-    const maxOffsetPct = 39; // keeps bubble inside the ring
-    const x = -(cg / MAX_TILT_DEG) * maxOffsetPct;
-    const y = -(cb / MAX_TILT_DEG) * maxOffsetPct;
-
-    bubble.style.transform =
-      "translate(calc(-50% + " + x.toFixed(2) + "%), calc(-50% + " + y.toFixed(2) + "%))";
-
-    // Horizontal bar shows roll only.
-    const barMax = 45; // percent of bar width from center
-    const bx = -(cg / MAX_TILT_DEG) * barMax;
-    barBubble.style.transform = "translate(calc(-50% + " + bx.toFixed(2) + "%), -50%)";
-
-    // Readouts.
-    const tilt = Math.hypot(beta, gamma);
-    pitchVal.textContent = fmtDeg(beta);
-    rollVal.textContent = fmtDeg(gamma);
-    tiltVal.textContent = tilt.toFixed(1) + "°";
-
-    const isLevel = tilt < LEVEL_THRESHOLD_DEG;
-    bubble.classList.toggle("level", isLevel);
-    barBubble.classList.toggle("level", isLevel);
-    levelVal.textContent = isLevel ? "LEVEL" : "off";
-    levelVal.style.color = isLevel ? "var(--good)" : "var(--ink)";
+  // Gravity in device frame from (beta, gamma) in degrees.
+  // Derived from W3C DeviceOrientationEvent's Z-X'-Y'' Tait-Bryan angles,
+  // using unit gravity (0, 0, -1) in the Earth frame. Alpha (compass) is
+  // ignored since rotation around the vertical axis doesn't change gravity.
+  // Sign check: γ > 0 means "right side of device tilted down", so gx > 0.
+  function gravityFromBetaGamma(beta, gamma) {
+    const b = beta * RAD;
+    const g = gamma * RAD;
+    const cb = Math.cos(b), sb = Math.sin(b);
+    const cg = Math.cos(g), sg = Math.sin(g);
+    return {
+      x:  sg * cb,
+      y: -sb,
+      z: -cg * cb,
+    };
   }
 
-  function onOrientation(e) {
-    // beta: -180..180 (front-back), gamma: -90..90 (left-right)
-    let beta = e.beta;
-    let gamma = e.gamma;
-    if (beta == null || gamma == null) return;
-
-    // Compensate for screen orientation so "roll" always means left-right of the current view.
+  // Rotate a device-frame vector into the current VIEW frame (the frame the
+  // user actually sees), accounting for screen.orientation.angle.
+  function deviceToView(v) {
     const angle =
       (screen.orientation && typeof screen.orientation.angle === "number")
         ? screen.orientation.angle
         : (window.orientation || 0);
+    const rad = angle * RAD;
+    const c = Math.cos(rad), s = Math.sin(rad);
+    return {
+      x: c * v.x - s * v.y,
+      y: s * v.x + c * v.y,
+      z: v.z,
+    };
+  }
 
-    let b = beta;
-    let g = gamma;
-    switch (angle) {
-      case 90:  b = gamma;  g = -beta; break;
-      case -90:
-      case 270: b = -gamma; g = beta;  break;
-      case 180: b = -beta;  g = -gamma; break;
-      default:  /* 0 */     break;
+  // Compute posture + display angles from a device-frame gravity vector.
+  function anglesFromDeviceGravity(gd) {
+    const gv = deviceToView(gd);
+    const flat = Math.abs(gv.z) > FLAT_THRESHOLD;
+    let rawPitch, rawRoll;
+    if (flat) {
+      // Small tilts off the horizontal plane. Both become ~0 when perfectly
+      // face-up and level; positive roll = right edge of view down; positive
+      // pitch = top edge of view lifted toward the user.
+      rawPitch = Math.atan2(-gv.y, -gv.z) * DEG;
+      rawRoll  = Math.atan2( gv.x, -gv.z) * DEG;
+    } else {
+      // Phone is held roughly vertical. The useful reading is how much the
+      // view's horizon is rolled off true horizontal — angle of the gravity
+      // vector (projected into the screen plane) from "view down".
+      rawPitch = NaN;
+      rawRoll  = Math.atan2( gv.x, -gv.y) * DEG;
     }
+    return { flat, rawPitch, rawRoll, gv };
+  }
 
+  function render() {
+    const { flat, rawPitch, rawRoll } = anglesFromDeviceGravity({
+      x: smGx, y: smGy, z: smGz,
+    });
+
+    const pitch = flat ? rawPitch - off.flat.pitch : NaN;
+    const roll  = flat ? rawRoll  - off.flat.roll  : rawRoll - off.upright.roll;
+
+    const clampMax = MAX_TILT_DEG;
+    const clamp = (v) => Math.max(-clampMax, Math.min(clampMax, v));
+    const cr = clamp(roll);
+    const cp = flat ? clamp(pitch) : 0;
+
+    // Bullseye: in flat mode the bubble tracks pitch+roll; in upright mode
+    // only the horizontal roll axis is meaningful, so the bubble rides the
+    // centreline like a single-axis vial.
+    const maxOffsetPct = 39;
+    const x = -(cr / clampMax) * maxOffsetPct;
+    const y = flat ? -(cp / clampMax) * maxOffsetPct : 0;
+    bubble.style.transform =
+      "translate(calc(-50% + " + x.toFixed(2) + "%), calc(-50% + " + y.toFixed(2) + "%))";
+
+    // Horizontal bar always shows roll (works in both postures).
+    const barMax = 45;
+    const bx = -(cr / clampMax) * barMax;
+    barBubble.style.transform =
+      "translate(calc(-50% + " + bx.toFixed(2) + "%), -50%)";
+
+    // Readouts.
+    const tilt = flat
+      ? Math.hypot(pitch, roll)
+      : Math.abs(roll);
+
+    pitchVal.textContent = fmtDeg(pitch);
+    rollVal.textContent  = fmtDeg(roll);
+    tiltVal.textContent  = Number.isFinite(tilt) ? tilt.toFixed(1) + "°" : "—";
+    modeVal.textContent  = flat ? "Flat" : "Upright";
+
+    const isLevel = Number.isFinite(tilt) && tilt < LEVEL_THRESHOLD_DEG;
+    bubble.classList.toggle("level", isLevel);
+    barBubble.classList.toggle("level", isLevel);
+    bubbleWrap.classList.toggle("upright", !flat);
+    tiltVal.style.color = isLevel ? "var(--good)" : "var(--ink)";
+  }
+
+  function onOrientation(e) {
+    if (e.beta == null || e.gamma == null) return;
+    const g = gravityFromBetaGamma(e.beta, e.gamma);
     if (!haveReading) {
-      smBeta = b;
-      smGamma = g;
+      smGx = g.x; smGy = g.y; smGz = g.z;
       haveReading = true;
     } else {
-      smBeta += (b - smBeta) * SMOOTH;
-      smGamma += (g - smGamma) * SMOOTH;
+      smGx += (g.x - smGx) * SMOOTH;
+      smGy += (g.y - smGy) * SMOOTH;
+      smGz += (g.z - smGz) * SMOOTH;
     }
     render();
   }
 
   function attach() {
     window.addEventListener("deviceorientation", onOrientation, true);
+    if (screen.orientation && screen.orientation.addEventListener) {
+      screen.orientation.addEventListener("change", render);
+    }
   }
 
   function needsIOSPermission() {
@@ -372,7 +435,6 @@
       statusEl.textContent = "Tap “Enable motion sensors” to start.";
     } else {
       attach();
-      // If after a short while we haven't received any events, tell the user.
       setTimeout(() => {
         if (!haveReading) {
           statusEl.textContent =
@@ -387,16 +449,23 @@
       statusEl.textContent = "No reading yet — move your device first.";
       return;
     }
-    offBeta = smBeta;
-    offGamma = smGamma;
+    const { flat, rawPitch, rawRoll } = anglesFromDeviceGravity({
+      x: smGx, y: smGy, z: smGz,
+    });
+    if (flat) {
+      off.flat.pitch = rawPitch;
+      off.flat.roll = rawRoll;
+      statusEl.textContent = "Flat calibration saved. This position is now “level”.";
+    } else {
+      off.upright.roll = rawRoll;
+      statusEl.textContent = "Upright calibration saved. This position is now “level”.";
+    }
     saveOffsets();
-    statusEl.textContent = "Calibrated. Current orientation is now “level”.";
     render();
   });
 
   resetBtn.addEventListener("click", () => {
-    offBeta = 0;
-    offGamma = 0;
+    off = defaultOffsets();
     saveOffsets();
     statusEl.textContent = "Calibration reset.";
     render();
