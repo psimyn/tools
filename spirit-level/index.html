@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0f1115" />
+<title>Spirit Level</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --ink: #e9edf5;
+    --muted: #8993a7;
+    --accent: #ffd84d;
+    --good: #4ade80;
+    --bad: #f87171;
+    --line: rgba(255, 255, 255, 0.08);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100svh;
+    overscroll-behavior: none;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+    gap: 18px;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  h1 {
+    margin: 12px 0 0;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .bubble-wrap {
+    position: relative;
+    width: min(78vmin, 420px);
+    aspect-ratio: 1 / 1;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at 50% 35%, #1f2430 0%, #121520 70%, #0b0d13 100%);
+    box-shadow:
+      inset 0 0 0 2px var(--line),
+      inset 0 20px 40px rgba(0, 0, 0, 0.5),
+      0 10px 30px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+  }
+  .bubble-wrap svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .bubble {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 22%;
+    aspect-ratio: 1 / 1;
+    margin-left: 0;
+    margin-top: 0;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.85), rgba(255, 216, 77, 0.85) 45%, rgba(255, 180, 0, 0.6) 80%);
+    box-shadow:
+      0 0 24px rgba(255, 216, 77, 0.35),
+      inset 0 0 18px rgba(255, 255, 255, 0.35);
+    transition: background 180ms ease, box-shadow 180ms ease;
+    will-change: transform;
+  }
+  .bubble.level {
+    background:
+      radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.9), rgba(74, 222, 128, 0.9) 45%, rgba(22, 163, 74, 0.7) 80%);
+    box-shadow:
+      0 0 30px rgba(74, 222, 128, 0.5),
+      inset 0 0 18px rgba(255, 255, 255, 0.4);
+  }
+
+  .bar {
+    width: min(78vmin, 420px);
+    height: 54px;
+    background: var(--panel);
+    border-radius: 14px;
+    position: relative;
+    box-shadow: inset 0 0 0 1px var(--line), inset 0 10px 24px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+  }
+  .bar::before,
+  .bar::after {
+    content: "";
+    position: absolute;
+    top: 10%;
+    bottom: 10%;
+    width: 2px;
+    background: rgba(255, 255, 255, 0.15);
+  }
+  .bar::before { left: 50%; transform: translateX(-6px); }
+  .bar::after { left: 50%; transform: translateX(5px); }
+  .bar-bubble {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 52px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+    border-radius: 22px;
+    background: radial-gradient(ellipse at 30% 30%, rgba(255, 255, 255, 0.85), rgba(255, 216, 77, 0.85) 50%, rgba(255, 180, 0, 0.55));
+    box-shadow: 0 0 18px rgba(255, 216, 77, 0.35), inset 0 0 12px rgba(255, 255, 255, 0.35);
+    transition: background 180ms ease, box-shadow 180ms ease;
+    will-change: transform;
+  }
+  .bar-bubble.level {
+    background: radial-gradient(ellipse at 30% 30%, rgba(255, 255, 255, 0.9), rgba(74, 222, 128, 0.9) 50%, rgba(22, 163, 74, 0.7));
+    box-shadow: 0 0 24px rgba(74, 222, 128, 0.5), inset 0 0 12px rgba(255, 255, 255, 0.4);
+  }
+
+  .readout {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px 24px;
+    width: min(78vmin, 420px);
+    padding: 14px 18px;
+    background: var(--panel);
+    border-radius: 14px;
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .readout div { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+  .readout span.label { color: var(--muted); font-size: 13px; }
+  .readout span.val { font-size: 15px; font-weight: 600; }
+
+  .controls {
+    display: flex;
+    gap: 10px;
+    width: min(78vmin, 420px);
+  }
+  button {
+    flex: 1;
+    padding: 12px 14px;
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 80ms ease, background 120ms ease;
+  }
+  button:active { transform: scale(0.97); }
+  button.primary { background: var(--accent); color: #1a1400; border-color: transparent; }
+
+  .status {
+    color: var(--muted);
+    font-size: 13px;
+    min-height: 1em;
+    text-align: center;
+    max-width: 420px;
+    padding: 0 6px;
+  }
+</style>
+</head>
+<body>
+  <h1>Spirit Level</h1>
+
+  <div class="bubble-wrap" aria-label="Bullseye level">
+    <svg viewBox="-100 -100 200 200" aria-hidden="true">
+      <defs>
+        <radialGradient id="glass" cx="50%" cy="35%" r="60%">
+          <stop offset="0%" stop-color="rgba(255,255,255,0.08)" />
+          <stop offset="100%" stop-color="rgba(255,255,255,0)" />
+        </radialGradient>
+      </defs>
+      <circle cx="0" cy="0" r="96" fill="url(#glass)" />
+      <circle cx="0" cy="0" r="22" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="1.2" />
+      <circle cx="0" cy="0" r="44" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1" />
+      <circle cx="0" cy="0" r="66" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="1" />
+      <line x1="-96" y1="0" x2="-28" y2="0" stroke="rgba(255,255,255,0.2)" stroke-width="1" />
+      <line x1="28" y1="0" x2="96" y2="0" stroke="rgba(255,255,255,0.2)" stroke-width="1" />
+      <line x1="0" y1="-96" x2="0" y2="-28" stroke="rgba(255,255,255,0.2)" stroke-width="1" />
+      <line x1="0" y1="28" x2="0" y2="96" stroke="rgba(255,255,255,0.2)" stroke-width="1" />
+    </svg>
+    <div class="bubble" id="bubble"></div>
+  </div>
+
+  <div class="bar" aria-label="Horizontal level">
+    <div class="bar-bubble" id="barBubble"></div>
+  </div>
+
+  <div class="readout" aria-live="polite">
+    <div><span class="label">Pitch (β)</span><span class="val" id="pitchVal">—</span></div>
+    <div><span class="label">Roll (γ)</span><span class="val" id="rollVal">—</span></div>
+    <div><span class="label">Tilt</span><span class="val" id="tiltVal">—</span></div>
+    <div><span class="label">Status</span><span class="val" id="levelVal">—</span></div>
+  </div>
+
+  <div class="controls">
+    <button id="calibrateBtn">Calibrate (zero)</button>
+    <button id="resetBtn">Reset</button>
+  </div>
+
+  <button id="enableBtn" class="primary" style="display:none; max-width: min(78vmin, 420px); width: 100%;">
+    Enable motion sensors
+  </button>
+
+  <p class="status" id="status">Tilt your device to see the bubble move.</p>
+
+<script>
+(function () {
+  "use strict";
+
+  const bubble = document.getElementById("bubble");
+  const barBubble = document.getElementById("barBubble");
+  const pitchVal = document.getElementById("pitchVal");
+  const rollVal = document.getElementById("rollVal");
+  const tiltVal = document.getElementById("tiltVal");
+  const levelVal = document.getElementById("levelVal");
+  const statusEl = document.getElementById("status");
+  const calibrateBtn = document.getElementById("calibrateBtn");
+  const resetBtn = document.getElementById("resetBtn");
+  const enableBtn = document.getElementById("enableBtn");
+
+  // Max travel for the bubble, as a fraction of the circle radius, at this tilt in degrees.
+  const MAX_TILT_DEG = 30;
+  const LEVEL_THRESHOLD_DEG = 1.0;
+
+  // Smoothing (exponential moving average).
+  const SMOOTH = 0.18;
+  let smBeta = 0;
+  let smGamma = 0;
+  let haveReading = false;
+
+  // Calibration offsets.
+  let offBeta = 0;
+  let offGamma = 0;
+  try {
+    const saved = JSON.parse(localStorage.getItem("spirit-level:offsets") || "null");
+    if (saved && typeof saved.beta === "number" && typeof saved.gamma === "number") {
+      offBeta = saved.beta;
+      offGamma = saved.gamma;
+    }
+  } catch (_) { /* ignore */ }
+
+  function saveOffsets() {
+    try {
+      localStorage.setItem(
+        "spirit-level:offsets",
+        JSON.stringify({ beta: offBeta, gamma: offGamma })
+      );
+    } catch (_) { /* ignore */ }
+  }
+
+  function fmtDeg(x) {
+    const s = x >= 0 ? "+" : "−";
+    return s + Math.abs(x).toFixed(1) + "°";
+  }
+
+  function render() {
+    const beta = smBeta - offBeta;   // front-back tilt (pitch)
+    const gamma = smGamma - offGamma; // left-right tilt (roll)
+
+    // Clamp for display.
+    const clamp = (v) => Math.max(-MAX_TILT_DEG, Math.min(MAX_TILT_DEG, v));
+    const cb = clamp(beta);
+    const cg = clamp(gamma);
+
+    // Map to percentage of radius. Positive gamma -> tilted right -> bubble goes LEFT (uphill).
+    // Positive beta -> tilted forward (top away) -> bubble goes toward the user (down in view).
+    // We invert so the bubble always moves toward the high side, like a real bullseye level.
+    const maxOffsetPct = 39; // keeps bubble inside the ring
+    const x = -(cg / MAX_TILT_DEG) * maxOffsetPct;
+    const y = -(cb / MAX_TILT_DEG) * maxOffsetPct;
+
+    bubble.style.transform =
+      "translate(calc(-50% + " + x.toFixed(2) + "%), calc(-50% + " + y.toFixed(2) + "%))";
+
+    // Horizontal bar shows roll only.
+    const barMax = 45; // percent of bar width from center
+    const bx = -(cg / MAX_TILT_DEG) * barMax;
+    barBubble.style.transform = "translate(calc(-50% + " + bx.toFixed(2) + "%), -50%)";
+
+    // Readouts.
+    const tilt = Math.hypot(beta, gamma);
+    pitchVal.textContent = fmtDeg(beta);
+    rollVal.textContent = fmtDeg(gamma);
+    tiltVal.textContent = tilt.toFixed(1) + "°";
+
+    const isLevel = tilt < LEVEL_THRESHOLD_DEG;
+    bubble.classList.toggle("level", isLevel);
+    barBubble.classList.toggle("level", isLevel);
+    levelVal.textContent = isLevel ? "LEVEL" : "off";
+    levelVal.style.color = isLevel ? "var(--good)" : "var(--ink)";
+  }
+
+  function onOrientation(e) {
+    // beta: -180..180 (front-back), gamma: -90..90 (left-right)
+    let beta = e.beta;
+    let gamma = e.gamma;
+    if (beta == null || gamma == null) return;
+
+    // Compensate for screen orientation so "roll" always means left-right of the current view.
+    const angle =
+      (screen.orientation && typeof screen.orientation.angle === "number")
+        ? screen.orientation.angle
+        : (window.orientation || 0);
+
+    let b = beta;
+    let g = gamma;
+    switch (angle) {
+      case 90:  b = gamma;  g = -beta; break;
+      case -90:
+      case 270: b = -gamma; g = beta;  break;
+      case 180: b = -beta;  g = -gamma; break;
+      default:  /* 0 */     break;
+    }
+
+    if (!haveReading) {
+      smBeta = b;
+      smGamma = g;
+      haveReading = true;
+    } else {
+      smBeta += (b - smBeta) * SMOOTH;
+      smGamma += (g - smGamma) * SMOOTH;
+    }
+    render();
+  }
+
+  function attach() {
+    window.addEventListener("deviceorientation", onOrientation, true);
+  }
+
+  function needsIOSPermission() {
+    return (
+      typeof DeviceOrientationEvent !== "undefined" &&
+      typeof DeviceOrientationEvent.requestPermission === "function"
+    );
+  }
+
+  function requestIOSPermission() {
+    DeviceOrientationEvent.requestPermission()
+      .then((state) => {
+        if (state === "granted") {
+          enableBtn.style.display = "none";
+          statusEl.textContent = "Tilt your device to see the bubble move.";
+          attach();
+        } else {
+          statusEl.textContent = "Motion sensor permission denied.";
+        }
+      })
+      .catch(() => {
+        statusEl.textContent = "Could not enable motion sensors.";
+      });
+  }
+
+  function init() {
+    if (typeof DeviceOrientationEvent === "undefined") {
+      statusEl.textContent =
+        "Your browser doesn't support device orientation. Try this page on a phone or tablet.";
+      return;
+    }
+    if (needsIOSPermission()) {
+      enableBtn.style.display = "block";
+      enableBtn.addEventListener("click", requestIOSPermission);
+      statusEl.textContent = "Tap “Enable motion sensors” to start.";
+    } else {
+      attach();
+      // If after a short while we haven't received any events, tell the user.
+      setTimeout(() => {
+        if (!haveReading) {
+          statusEl.textContent =
+            "No orientation data received. On desktop, try the device emulator in your browser's dev tools.";
+        }
+      }, 1500);
+    }
+  }
+
+  calibrateBtn.addEventListener("click", () => {
+    if (!haveReading) {
+      statusEl.textContent = "No reading yet — move your device first.";
+      return;
+    }
+    offBeta = smBeta;
+    offGamma = smGamma;
+    saveOffsets();
+    statusEl.textContent = "Calibrated. Current orientation is now “level”.";
+    render();
+  });
+
+  resetBtn.addEventListener("click", () => {
+    offBeta = 0;
+    offGamma = 0;
+    saveOffsets();
+    statusEl.textContent = "Calibration reset.";
+    render();
+  });
+
+  init();
+})();
+</script>
+</body>
+</html>
