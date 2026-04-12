@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Apps</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --ink: #e9edf5;
+    --muted: #8993a7;
+    --accent: #ffd84d;
+    --line: rgba(255, 255, 255, 0.08);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.55;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 48px 20px 80px; }
+  h1 {
+    font-size: 28px;
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+  header p { color: var(--muted); margin: 0 0 32px; }
+  .app {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 20px 22px;
+    margin: 18px 0;
+  }
+  .app h2 { margin: 0 0 4px; font-size: 20px; }
+  .app h2 a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .app h2 a:hover { text-decoration: underline; }
+  .app .slug {
+    color: var(--muted);
+    font-size: 13px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .app .summary { margin-top: 10px; color: var(--ink); }
+  .app .summary p:first-child { margin-top: 0; }
+  .app .prompt {
+    margin: 12px 0 0;
+    padding: 10px 14px;
+    border-left: 3px solid var(--accent);
+    background: rgba(255, 216, 77, 0.06);
+    color: var(--ink);
+    font-style: italic;
+    border-radius: 6px;
+  }
+  .app .prompt::before {
+    content: "prompt";
+    display: block;
+    font-style: normal;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  code {
+    background: rgba(255, 255, 255, 0.06);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 0.92em;
+  }
+  pre {
+    background: #0b0d13;
+    border: 1px solid var(--line);
+    padding: 12px 14px;
+    border-radius: 8px;
+    overflow-x: auto;
+  }
+  a { color: var(--accent); }
+  footer {
+    margin-top: 48px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Apps</h1>
+      <p>A collection of small, single-file web apps, each built from a prompt.</p>
+    </header>
+        <article class="app">
+      <h2><a href="spirit-level.html">Spirit Level</a></h2>
+      <div class="slug">spirit-level.html</div>
+      <blockquote class="prompt">plain html/js spirit level</blockquote>
+      <div class="summary"><p>A browser-based bullseye + bar spirit level that uses the <code>DeviceOrientation</code>
+API to show how level your phone (or tablet) is.</p>
+<h2>Prompt</h2>
+<blockquote>
+<p>plain html/js spirit level</p>
+</blockquote>
+<h2>Notes</h2>
+<ul>
+<li>Bullseye vial in the centre plus a horizontal bar for roll only.</li>
+<li>Compensates for screen orientation so "roll" always means left–right of the
+  current view, even in landscape.</li>
+<li>iOS 13+ permission prompt is surfaced via an "Enable motion sensors" button
+  when <code>DeviceOrientationEvent.requestPermission</code> exists.</li>
+<li>Exponential smoothing (<code>SMOOTH = 0.18</code>) to stop bubble jitter.</li>
+<li>Bubble turns green when total tilt is within <code>1.0°</code> of level.</li>
+<li>Calibrate / Reset buttons with offsets persisted in <code>localStorage</code>.</li>
+<li>No build step, no dependencies — a single <code>.html</code> file.</li>
+</ul>
+<p>Open the page on a phone, or use the device-orientation emulator in Chrome
+DevTools on desktop.</p></div>
+    </article>
+    <footer>
+      Source: <a href="https://github.com/psimyn/apps">psimyn/apps</a>
+    </footer>
+  </main>
+</body>
+</html>
