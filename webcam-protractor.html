@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0f1115" />
+<title>Webcam Protractor</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --ink: #e9edf5;
+    --muted: #8993a7;
+    --accent: #ffd84d;
+    --arm: #4ade80;
+    --handle: #ffffff;
+    --shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #000;
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    height: 100svh;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
+  }
+  #stage {
+    position: fixed;
+    inset: 0;
+  }
+  video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: #000;
+  }
+  video.mirror { transform: scaleX(-1); }
+  svg#overlay {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+  }
+
+  .panel {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: calc(env(safe-area-inset-bottom) + 16px);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    background: rgba(23, 26, 33, 0.78);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    z-index: 5;
+  }
+  button {
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--ink);
+    font: inherit;
+    font-size: 13px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  button:active { background: rgba(255, 255, 255, 0.14); }
+  .readout {
+    font-variant-numeric: tabular-nums;
+    font-size: 14px;
+    color: var(--accent);
+    padding: 0 6px;
+    min-width: 64px;
+    text-align: center;
+  }
+
+  #start-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    background: #0f1115;
+    z-index: 10;
+    padding: 24px;
+    text-align: center;
+  }
+  #start-overlay h1 {
+    margin: 0;
+    font-size: 18px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  #start-overlay p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+    max-width: 340px;
+    line-height: 1.5;
+  }
+  #start-overlay button {
+    font-size: 15px;
+    padding: 12px 20px;
+    background: var(--accent);
+    color: #0f1115;
+    font-weight: 600;
+    border: none;
+  }
+  .error {
+    color: #f87171;
+    font-size: 13px;
+    max-width: 340px;
+    min-height: 1.2em;
+  }
+
+  /* Overlay SVG styles */
+  .arm {
+    stroke: var(--arm);
+    stroke-width: 2.5;
+    fill: none;
+    stroke-linecap: round;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+  }
+  .arc-fill { fill: rgba(255, 216, 77, 0.18); stroke: none; }
+  .arc-line { stroke: var(--accent); stroke-width: 1.8; fill: none; }
+  .semi-base { stroke: rgba(255, 255, 255, 0.45); stroke-width: 1; fill: none; }
+  .tick { stroke: rgba(255, 255, 255, 0.88); }
+  .tick-label {
+    fill: rgba(255, 255, 255, 0.95);
+    font-size: 10px;
+    font-family: inherit;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    paint-order: stroke;
+    stroke: rgba(0, 0, 0, 0.7);
+    stroke-width: 2px;
+  }
+  .handle {
+    fill: var(--handle);
+    stroke: #000;
+    stroke-width: 1.5;
+    cursor: grab;
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
+  }
+  .handle.vertex { fill: var(--accent); }
+  .handle:active { cursor: grabbing; }
+  .label-angle {
+    fill: #fff;
+    font-size: 18px;
+    font-weight: 700;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    paint-order: stroke;
+    stroke: rgba(0, 0, 0, 0.75);
+    stroke-width: 3.5px;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <video id="video" autoplay playsinline muted></video>
+    <svg id="overlay" xmlns="http://www.w3.org/2000/svg"></svg>
+  </div>
+
+  <div class="panel">
+    <button id="switch" title="Switch camera">Flip</button>
+    <button id="reset" title="Reset protractor">Reset</button>
+    <div class="readout" id="angle">—</div>
+  </div>
+
+  <div id="start-overlay">
+    <h1>Webcam Protractor</h1>
+    <p>Measure real-world angles through your camera. Drag the three handles to align the two green arms with the edges you want to compare — the angle between them is shown on the protractor.</p>
+    <button id="start">Enable camera</button>
+    <div class="error" id="error"></div>
+  </div>
+
+<script>
+(() => {
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const video = document.getElementById('video');
+  const svg = document.getElementById('overlay');
+  const startOverlay = document.getElementById('start-overlay');
+  const startBtn = document.getElementById('start');
+  const switchBtn = document.getElementById('switch');
+  const resetBtn = document.getElementById('reset');
+  const angleReadout = document.getElementById('angle');
+  const errorEl = document.getElementById('error');
+
+  const TICK_R = 84; // protractor radius in pixels
+
+  // Points in SVG (= CSS) pixel coordinates.
+  let V = null, A = null, B = null;
+
+  let stream = null;
+  let facing = 'environment';
+  let dragging = null;
+  let dragOffset = { x: 0, y: 0 };
+
+  // --- Build SVG scaffold once ---
+  function buildSvg() {
+    svg.innerHTML = `
+      <g id="arc-layer">
+        <path id="arc-fill" class="arc-fill"></path>
+      </g>
+      <g id="ticks"></g>
+      <path id="semi-base" class="semi-base"></path>
+      <path id="arc-line" class="arc-line"></path>
+      <g id="arms">
+        <line id="arm1" class="arm"></line>
+        <line id="arm2" class="arm"></line>
+      </g>
+      <text id="label" class="label-angle"></text>
+      <g id="handles">
+        <circle id="hA" class="handle" r="12"></circle>
+        <circle id="hB" class="handle" r="12"></circle>
+        <circle id="hV" class="handle vertex" r="14"></circle>
+      </g>
+    `;
+  }
+
+  function resetPositions() {
+    const r = svg.getBoundingClientRect();
+    const cx = r.width / 2;
+    const cy = r.height / 2;
+    const arm = Math.min(r.width, r.height) * 0.28;
+    V = { x: cx, y: cy };
+    A = { x: cx + arm, y: cy };            // 0° arm (right)
+    B = { x: cx, y: cy - arm };             // 90° arm (up)
+    render();
+  }
+
+  // Angle math helpers ---
+  function render() {
+    if (!V) return;
+
+    const dxA = A.x - V.x, dyA = A.y - V.y;
+    const dxB = B.x - V.x, dyB = B.y - V.y;
+    const lenA = Math.hypot(dxA, dyA);
+    const lenB = Math.hypot(dxB, dyB);
+    const theta1 = Math.atan2(dyA, dxA);
+    const theta2 = Math.atan2(dyB, dxB);
+
+    // signed shortest difference in [-π, π]
+    let diff = theta2 - theta1;
+    while (diff > Math.PI) diff -= 2 * Math.PI;
+    while (diff < -Math.PI) diff += 2 * Math.PI;
+    const sign = diff >= 0 ? 1 : -1;
+    const alpha = Math.abs(diff); // 0..π — interior angle
+
+    // Arms
+    setLine('arm1', V, A);
+    setLine('arm2', V, B);
+
+    // Handles
+    setCircle('hV', V);
+    setCircle('hA', A);
+    setCircle('hB', B);
+
+    // Inner arc (between arms) — bounded by arm length
+    const R = Math.max(10, Math.min(TICK_R - 18, lenA - 8, lenB - 8));
+    const arcFill = document.getElementById('arc-fill');
+    const arcLine = document.getElementById('arc-line');
+    if (R > 12 && alpha > 0.001) {
+      const s0 = { x: V.x + R * Math.cos(theta1), y: V.y + R * Math.sin(theta1) };
+      const s1 = { x: V.x + R * Math.cos(theta1 + sign * alpha), y: V.y + R * Math.sin(theta1 + sign * alpha) };
+      const sweep = sign > 0 ? 1 : 0;
+      arcFill.setAttribute('d', `M ${V.x} ${V.y} L ${s0.x} ${s0.y} A ${R} ${R} 0 0 ${sweep} ${s1.x} ${s1.y} Z`);
+      arcLine.setAttribute('d', `M ${s0.x} ${s0.y} A ${R} ${R} 0 0 ${sweep} ${s1.x} ${s1.y}`);
+    } else {
+      arcFill.setAttribute('d', '');
+      arcLine.setAttribute('d', '');
+    }
+
+    // Protractor ticks — a 180° semicircle aligned with arm1 (0°) sweeping toward arm2.
+    const ticksEl = document.getElementById('ticks');
+    ticksEl.innerHTML = '';
+    for (let deg = 0; deg <= 180; deg += 5) {
+      const a = theta1 + sign * (deg * Math.PI / 180);
+      const ca = Math.cos(a), sa = Math.sin(a);
+      let tickLen;
+      if (deg % 30 === 0) tickLen = 12;
+      else if (deg % 10 === 0) tickLen = 8;
+      else tickLen = 4;
+      const x1 = V.x + (TICK_R - tickLen) * ca;
+      const y1 = V.y + (TICK_R - tickLen) * sa;
+      const x2 = V.x + TICK_R * ca;
+      const y2 = V.y + TICK_R * sa;
+      const line = document.createElementNS(SVG_NS, 'line');
+      line.setAttribute('class', 'tick');
+      line.setAttribute('x1', x1);
+      line.setAttribute('y1', y1);
+      line.setAttribute('x2', x2);
+      line.setAttribute('y2', y2);
+      line.setAttribute('stroke-width', deg % 30 === 0 ? 2 : 1);
+      ticksEl.appendChild(line);
+      if (deg % 30 === 0 && deg !== 0 && deg !== 180) {
+        const lx = V.x + (TICK_R + 12) * ca;
+        const ly = V.y + (TICK_R + 12) * sa;
+        const t = document.createElementNS(SVG_NS, 'text');
+        t.setAttribute('class', 'tick-label');
+        t.setAttribute('x', lx);
+        t.setAttribute('y', ly);
+        t.textContent = String(deg);
+        ticksEl.appendChild(t);
+      }
+    }
+
+    // Baseline semicircle arc (faint outline of the protractor body)
+    const semi = document.getElementById('semi-base');
+    const bs = { x: V.x + TICK_R * Math.cos(theta1), y: V.y + TICK_R * Math.sin(theta1) };
+    const be = { x: V.x + TICK_R * Math.cos(theta1 + sign * Math.PI), y: V.y + TICK_R * Math.sin(theta1 + sign * Math.PI) };
+    const semiSweep = sign > 0 ? 1 : 0;
+    semi.setAttribute('d', `M ${bs.x} ${bs.y} A ${TICK_R} ${TICK_R} 0 0 ${semiSweep} ${be.x} ${be.y}`);
+
+    // Angle label at the midpoint of the sweep, just outside the ticks.
+    const midA = theta1 + sign * alpha / 2;
+    const labelR = TICK_R + 28;
+    const lbl = document.getElementById('label');
+    lbl.setAttribute('x', V.x + labelR * Math.cos(midA));
+    lbl.setAttribute('y', V.y + labelR * Math.sin(midA));
+    const degValue = alpha * 180 / Math.PI;
+    const text = `${degValue.toFixed(1)}°`;
+    lbl.textContent = text;
+    angleReadout.textContent = text;
+  }
+
+  function setLine(id, p, q) {
+    const el = document.getElementById(id);
+    el.setAttribute('x1', p.x);
+    el.setAttribute('y1', p.y);
+    el.setAttribute('x2', q.x);
+    el.setAttribute('y2', q.y);
+  }
+  function setCircle(id, p) {
+    const el = document.getElementById(id);
+    el.setAttribute('cx', p.x);
+    el.setAttribute('cy', p.y);
+  }
+
+  // --- Pointer dragging ---
+  function localPoint(ev) {
+    const r = svg.getBoundingClientRect();
+    return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+  }
+
+  svg.addEventListener('pointerdown', (ev) => {
+    const id = ev.target.id;
+    if (id !== 'hV' && id !== 'hA' && id !== 'hB') return;
+    dragging = id;
+    const p = localPoint(ev);
+    const src = id === 'hV' ? V : id === 'hA' ? A : B;
+    dragOffset = { x: p.x - src.x, y: p.y - src.y };
+    ev.preventDefault();
+  });
+
+  window.addEventListener('pointermove', (ev) => {
+    if (!dragging) return;
+    const p = localPoint(ev);
+    const nx = p.x - dragOffset.x;
+    const ny = p.y - dragOffset.y;
+    if (dragging === 'hV') {
+      const dx = nx - V.x, dy = ny - V.y;
+      V = { x: nx, y: ny };
+      A = { x: A.x + dx, y: A.y + dy };
+      B = { x: B.x + dx, y: B.y + dy };
+    } else if (dragging === 'hA') {
+      A = { x: nx, y: ny };
+    } else if (dragging === 'hB') {
+      B = { x: nx, y: ny };
+    }
+    render();
+  });
+
+  function endDrag() { dragging = null; }
+  window.addEventListener('pointerup', endDrag);
+  window.addEventListener('pointercancel', endDrag);
+
+  // --- Camera ---
+  async function startCamera() {
+    errorEl.textContent = '';
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      errorEl.textContent = 'Camera API not available. Serve over HTTPS or localhost.';
+      return;
+    }
+    if (stream) {
+      stream.getTracks().forEach((t) => t.stop());
+      stream = null;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: facing },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      });
+      video.srcObject = stream;
+      video.classList.toggle('mirror', facing === 'user');
+      startOverlay.style.display = 'none';
+      if (!V) resetPositions(); else render();
+    } catch (err) {
+      errorEl.textContent = `Camera error: ${err.message || err.name}`;
+    }
+  }
+
+  startBtn.addEventListener('click', startCamera);
+  switchBtn.addEventListener('click', () => {
+    facing = facing === 'environment' ? 'user' : 'environment';
+    startCamera();
+  });
+  resetBtn.addEventListener('click', resetPositions);
+
+  window.addEventListener('resize', () => {
+    if (!V) return;
+    const r = svg.getBoundingClientRect();
+    for (const p of [V, A, B]) {
+      p.x = Math.max(10, Math.min(r.width - 10, p.x));
+      p.y = Math.max(10, Math.min(r.height - 10, p.y));
+    }
+    render();
+  });
+
+  buildSvg();
+})();
+</script>
+</body>
+</html>
