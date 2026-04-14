@@ -1,4 +1,4 @@
-# Webcam Protractor
+# Protractor
 
 Measure real-world angles through your device's camera. The live video is
 shown full-screen with an interactive protractor overlay — drag the vertex and
