@@ -238,7 +238,7 @@ def render(apps: list[App]) -> str:
     else:
         cards = "\n".join(
             CARD_TEMPLATE.format(
-                href=html.escape(f"{app.slug}.html"),
+                href=html.escape(app.slug),
                 title=html.escape(app.title),
                 slug=html.escape(app.slug),
                 prompt_block=(
