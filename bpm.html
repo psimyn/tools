@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0f1115" />
+<title>BPM</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --ink: #e9edf5;
+    --muted: #8993a7;
+    --accent: #ffd84d;
+    --good: #4ade80;
+    --line: rgba(255, 255, 255, 0.08);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100svh;
+    overscroll-behavior: none;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+    gap: 26px;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  h1 {
+    margin: 12px 0 0;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .tap {
+    appearance: none;
+    width: min(78vmin, 360px);
+    aspect-ratio: 1 / 1;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at 50% 35%, #1f2430 0%, #121520 70%, #0b0d13 100%);
+    border: 1px solid var(--line);
+    box-shadow:
+      inset 0 0 0 2px var(--line),
+      inset 0 20px 40px rgba(0, 0, 0, 0.5),
+      0 10px 30px rgba(0, 0, 0, 0.5);
+    color: var(--ink);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font: inherit;
+    transition: transform 80ms ease, box-shadow 160ms ease;
+    touch-action: manipulation;
+  }
+  .tap:active { transform: scale(0.98); }
+  .tap.pulse {
+    box-shadow:
+      inset 0 0 0 2px var(--accent),
+      inset 0 20px 40px rgba(0, 0, 0, 0.5),
+      0 10px 30px rgba(0, 0, 0, 0.5),
+      0 0 48px rgba(255, 216, 77, 0.35);
+  }
+  .bpm {
+    font-size: clamp(80px, 24vmin, 168px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    line-height: 0.95;
+  }
+  .bpm.locked { color: var(--good); }
+  .label {
+    margin-top: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .mic {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 12px 20px;
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 80ms ease, background 120ms ease, color 120ms ease;
+    touch-action: manipulation;
+  }
+  .mic:active { transform: scale(0.97); }
+  .mic.on {
+    background: var(--accent);
+    color: #1a1400;
+    border-color: transparent;
+  }
+  .mic .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background 60ms ease, box-shadow 60ms ease, transform 60ms ease;
+  }
+  .mic.on .dot { background: #1a1400; }
+  .mic.hit .dot {
+    background: var(--good);
+    box-shadow: 0 0 10px var(--good);
+    transform: scale(1.25);
+  }
+  .status {
+    color: var(--muted);
+    font-size: 13px;
+    min-height: 1em;
+    text-align: center;
+    max-width: 420px;
+    padding: 0 6px;
+  }
+</style>
+</head>
+<body>
+  <h1>BPM</h1>
+
+  <button class="tap" id="tapBtn" aria-label="Tap to set tempo">
+    <span class="bpm" id="bpmVal">—</span>
+    <span class="label">BPM</span>
+  </button>
+
+  <button class="mic" id="micBtn" aria-pressed="false" type="button">
+    <span class="dot" id="micDot"></span>
+    <span id="micLabel">Listen</span>
+  </button>
+
+  <p class="status" id="status">Tap the circle to the beat — or enable the mic.</p>
+
+<script>
+(function () {
+  "use strict";
+
+  const tapBtn   = document.getElementById("tapBtn");
+  const bpmVal   = document.getElementById("bpmVal");
+  const micBtn   = document.getElementById("micBtn");
+  const micLabel = document.getElementById("micLabel");
+  const statusEl = document.getElementById("status");
+
+  // ---------- tap tempo ----------
+  // Rolling median of inter-tap intervals, with a reset gap so you can start
+  // over cleanly. Median (not mean) so a single stray tap doesn't poison the
+  // running estimate.
+  const TAP_RESET_MS = 2000;
+  const TAP_MAX = 16;
+  let tapTimes = [];
+  let lastTapAt = 0;
+
+  function tapBpmFromTimes() {
+    if (tapTimes.length < 2) return NaN;
+    const intervals = [];
+    for (let i = 1; i < tapTimes.length; i++) {
+      intervals.push(tapTimes[i] - tapTimes[i - 1]);
+    }
+    intervals.sort((a, b) => a - b);
+    const med = intervals[Math.floor(intervals.length / 2)];
+    return med > 0 ? 60000 / med : NaN;
+  }
+
+  function activeTapBpm() {
+    const now = performance.now();
+    if (!tapTimes.length || now - lastTapAt > TAP_RESET_MS) return NaN;
+    return tapBpmFromTimes();
+  }
+
+  function onTap() {
+    const now = performance.now();
+    if (now - lastTapAt > TAP_RESET_MS) tapTimes = [];
+    tapTimes.push(now);
+    if (tapTimes.length > TAP_MAX) tapTimes.shift();
+    lastTapAt = now;
+    pulseTap();
+    render();
+  }
+
+  function pulseTap() {
+    tapBtn.classList.remove("pulse");
+    void tapBtn.offsetWidth;
+    tapBtn.classList.add("pulse");
+    setTimeout(() => tapBtn.classList.remove("pulse"), 120);
+  }
+
+  tapBtn.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    onTap();
+  });
+  // Space bar also taps, for desktop.
+  window.addEventListener("keydown", (e) => {
+    if (e.code === "Space" && e.target === document.body) {
+      e.preventDefault();
+      onTap();
+    }
+  });
+
+  // ---------- mic onset detection ----------
+  // Spectral flux (positive-difference sum across magnitude bins) builds an
+  // onset-strength envelope, then autocorrelation of that envelope estimates
+  // period. If taps are active we snap the autocorrelation result to the
+  // nearest harmonic of the tap BPM — that resolves the usual half/double
+  // time ambiguity cheaply.
+  const ENV_LEN = 320;         // ~5 s of envelope at ~60 fps
+  const envelope = new Float32Array(ENV_LEN);
+  let envIdx = 0, envFilled = 0;
+
+  let audioCtx = null, analyser = null, micStream = null;
+  let specBuf = null, prevSpec = null;
+  let micOn = false;
+  let fluxMean = 0, fluxVar = 1;
+  let lastOnsetAt = 0;
+  let frameCount = 0;
+  let frameStart = 0;
+  let micBpm = NaN;
+
+  async function startMic() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        statusEl.textContent = "This browser can't access the microphone.";
+        return;
+      }
+      audioCtx = new AC();
+      if (audioCtx.state === "suspended") await audioCtx.resume();
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
+      const src = audioCtx.createMediaStreamSource(micStream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0;
+      src.connect(analyser);
+
+      const N = analyser.frequencyBinCount;
+      specBuf = new Float32Array(N);
+      prevSpec = new Float32Array(N);
+
+      envIdx = 0;
+      envFilled = 0;
+      envelope.fill(0);
+      fluxMean = 0;
+      fluxVar = 1;
+      frameCount = 0;
+      frameStart = performance.now();
+      micBpm = NaN;
+
+      micOn = true;
+      micBtn.classList.add("on");
+      micBtn.setAttribute("aria-pressed", "true");
+      micLabel.textContent = "Listening";
+      statusEl.textContent = "Listening. Tap along to lock the beat.";
+      requestAnimationFrame(loop);
+    } catch (e) {
+      statusEl.textContent = "Mic access denied or unavailable.";
+      micOn = false;
+    }
+  }
+
+  function stopMic() {
+    micOn = false;
+    micBtn.classList.remove("on", "hit");
+    micBtn.setAttribute("aria-pressed", "false");
+    micLabel.textContent = "Listen";
+    if (micStream) {
+      micStream.getTracks().forEach((t) => t.stop());
+      micStream = null;
+    }
+    if (audioCtx) {
+      audioCtx.close().catch(() => {});
+      audioCtx = null;
+    }
+    analyser = null;
+    specBuf = null;
+    prevSpec = null;
+    micBpm = NaN;
+    statusEl.textContent = "Tap the circle to the beat — or enable the mic.";
+    render();
+  }
+
+  micBtn.addEventListener("click", () => {
+    if (micOn) stopMic(); else startMic();
+  });
+
+  function loop() {
+    if (!micOn || !analyser) return;
+    requestAnimationFrame(loop);
+
+    analyser.getFloatFrequencyData(specBuf);
+    const N = specBuf.length;
+
+    // dB → non-negative loudness-ish value, then half-wave-rectified flux.
+    let flux = 0;
+    for (let i = 0; i < N; i++) {
+      const db = specBuf[i];
+      const v = db < -100 ? 0 : db + 100; // 0..~100
+      const d = v - prevSpec[i];
+      if (d > 0) flux += d;
+      prevSpec[i] = v;
+    }
+    flux /= N;
+
+    // Adaptive mean/variance of the flux signal (Welford-ish EMA).
+    const a = 0.02;
+    const prevMean = fluxMean;
+    fluxMean += a * (flux - fluxMean);
+    fluxVar  += a * ((flux - prevMean) * (flux - fluxMean) - fluxVar);
+    const std = Math.sqrt(Math.max(fluxVar, 1e-6));
+
+    // Onset-strength envelope = positive excess above running mean.
+    envelope[envIdx] = Math.max(0, flux - fluxMean);
+    envIdx = (envIdx + 1) % ENV_LEN;
+    if (envFilled < ENV_LEN) envFilled++;
+
+    // Discrete onset flash for the mic LED. 90 ms refractory to avoid
+    // triggering twice on a single loud transient.
+    const now = performance.now();
+    if (flux > fluxMean + 1.6 * std && now - lastOnsetAt > 90) {
+      lastOnsetAt = now;
+      micBtn.classList.add("hit");
+      setTimeout(() => micBtn.classList.remove("hit"), 80);
+    }
+
+    frameCount++;
+    // Re-estimate tempo every ~8 frames once the envelope is full.
+    if (frameCount % 8 === 0 && envFilled >= ENV_LEN) {
+      micBpm = estimateBpmFromEnvelope();
+      render();
+    }
+  }
+
+  function estimateBpmFromEnvelope() {
+    const N = ENV_LEN;
+    // Unroll the circular buffer so the oldest sample sits at x[0].
+    const x = new Float32Array(N);
+    for (let i = 0; i < N; i++) x[i] = envelope[(envIdx + i) % N];
+
+    // Estimate the actual frame rate — RAF isn't always 60 Hz (120 Hz
+    // displays, throttled tabs…), so we convert lag → BPM using the
+    // measured fps rather than assuming anything.
+    const elapsed = (performance.now() - frameStart) / 1000;
+    const fps = frameCount / Math.max(elapsed, 0.001);
+    if (!Number.isFinite(fps) || fps < 20) return NaN;
+
+    const minBpm = 50, maxBpm = 210;
+    const minLag = Math.max(2, Math.floor((60 * fps) / maxBpm));
+    const maxLag = Math.min(N - 4, Math.ceil((60 * fps) / minBpm));
+    if (maxLag <= minLag) return NaN;
+
+    // Zero-mean the window before autocorrelating so a DC offset doesn't
+    // dominate the result.
+    let mean = 0;
+    for (let i = 0; i < N; i++) mean += x[i];
+    mean /= N;
+    for (let i = 0; i < N; i++) x[i] -= mean;
+
+    let bestLag = -1, bestVal = -Infinity;
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let s = 0;
+      const M = N - lag;
+      for (let i = 0; i < M; i++) s += x[i] * x[i + lag];
+      s /= M;
+      if (s > bestVal) { bestVal = s; bestLag = lag; }
+    }
+    if (bestLag < 0 || bestVal <= 0) return NaN;
+
+    // Parabolic interpolation around the peak for sub-sample lag precision.
+    let lagF = bestLag;
+    if (bestLag > minLag && bestLag < maxLag) {
+      const y1 = acAt(x, bestLag - 1);
+      const y2 = bestVal;
+      const y3 = acAt(x, bestLag + 1);
+      const denom = (y1 - 2 * y2 + y3);
+      if (denom !== 0) lagF = bestLag + 0.5 * (y1 - y3) / denom;
+    }
+
+    let bpm = (60 * fps) / lagF;
+
+    // If taps are active, snap to the nearest common harmonic of the tap BPM.
+    // This fixes the classic "autocorr locked on the half-bar" problem
+    // without forcing the user to tap for the whole duration.
+    const tbpm = activeTapBpm();
+    if (Number.isFinite(tbpm)) {
+      const candidates = [bpm, bpm * 2, bpm / 2, bpm * 1.5, bpm / 1.5, bpm * 3, bpm / 3];
+      let best = bpm, bestDiff = Infinity;
+      for (const c of candidates) {
+        if (c < 40 || c > 240) continue;
+        const d = Math.abs(c - tbpm);
+        if (d < bestDiff) { bestDiff = d; best = c; }
+      }
+      bpm = best;
+    }
+    return bpm;
+  }
+
+  function acAt(x, lag) {
+    const N = x.length;
+    let s = 0;
+    const M = N - lag;
+    for (let i = 0; i < M; i++) s += x[i] * x[i + lag];
+    return s / M;
+  }
+
+  // ---------- display ----------
+  function render() {
+    const tbpm = activeTapBpm();
+    let shown = NaN;
+    let locked = false;
+
+    if (Number.isFinite(tbpm) && Number.isFinite(micBpm) && micOn) {
+      // Combined: weight taps more (the user's intent is ground truth),
+      // but let the mic nudge the estimate.
+      shown = 0.6 * tbpm + 0.4 * micBpm;
+      // Consider it "locked" when the two sources agree within 3 BPM.
+      locked = Math.abs(tbpm - micBpm) < 3;
+    } else if (Number.isFinite(tbpm)) {
+      shown = tbpm;
+    } else if (Number.isFinite(micBpm) && micOn) {
+      shown = micBpm;
+    }
+
+    if (!Number.isFinite(shown)) {
+      bpmVal.textContent = "—";
+      bpmVal.classList.remove("locked");
+      return;
+    }
+    bpmVal.textContent = String(Math.round(shown));
+    bpmVal.classList.toggle("locked", locked);
+  }
+
+  // Periodically refresh so the display clears when taps go stale.
+  setInterval(render, 250);
+  render();
+})();
+</script>
+</body>
+</html>
