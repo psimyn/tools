@@ -96,7 +96,158 @@
       <p>A collection of small, single-file web apps, each built from a prompt.</p>
     </header>
         <article class="app">
-      <h2><a href="spirit-level.html">Spirit Level</a></h2>
+      <h2><a href="bpm">BPM</a></h2>
+      <div class="slug">bpm.html</div>
+      <blockquote class="prompt">bpm, a bpm detector. can tap button, or listen to mic. if listening to mic and tapping, combine the inputs or use the taps to guide transient detection. very minimal UI. basically just a button and a number</blockquote>
+      <div class="summary"><p>A minimal BPM detector. Tap the big circle to set a tempo, enable the mic to
+pick a beat out of audio, or do both at once — taps guide the audio estimate
+and snap it to the right harmonic.</p>
+<h2>Prompt</h2>
+<blockquote>
+<p>bpm, a bpm detector. can tap button, or listen to mic. if listening to mic and tapping, combine the inputs or use the taps to guide transient detection. very minimal UI. basically just a button and a number</p>
+</blockquote>
+<h2>Notes</h2>
+<ul>
+<li><strong>Tap mode</strong>: rolling median of the last 16 inter-tap intervals, with a 2 s
+  reset gap so you can start over cleanly. Median, not mean — so one stray
+  tap doesn't poison the estimate. Space bar also taps, for desktop.</li>
+<li><strong>Mic mode</strong>: spectral-flux onset detection on <code>getFloatFrequencyData</code>
+  (half-wave-rectified bin-to-bin difference), feeding an onset-strength
+  envelope. Autocorrelation of that envelope over lags corresponding to
+  50–210 BPM gives the period, with parabolic interpolation around the peak
+  for sub-sample precision. The lag-to-BPM conversion uses the <em>measured</em>
+  <code>requestAnimationFrame</code> rate so it's correct on 60, 90, or 120 Hz displays.</li>
+<li><strong>Combined</strong>: when you tap while listening, the autocorrelation peak is
+  snapped to the nearest common harmonic of the tap BPM (<code>×½, ×1, ×1.5, ×2,
+  ×⅓, ×3</code>), which cheaply fixes the usual "locked on the half-bar" failure.
+  The displayed number is a weighted blend (60 % tap, 40 % mic), and turns
+  green when the two sources agree within 3 BPM.</li>
+<li>No build step, no dependencies — a single <code>.html</code> file.</li>
+</ul></div>
+    </article>
+    <article class="app">
+      <h2><a href="protractor">Protractor</a></h2>
+      <div class="slug">protractor.html</div>
+      <blockquote class="prompt">webcam with protractor overlay</blockquote>
+      <div class="summary"><p>Measure real-world angles through your device's camera. The live video is
+shown full-screen with an interactive protractor overlay — drag the vertex and
+two arm endpoints to align the green arms with the edges you want to compare,
+and the interior angle between them is read off directly.</p>
+<h2>Prompt</h2>
+<blockquote>
+<p>webcam with protractor overlay</p>
+</blockquote>
+<h2>Notes</h2>
+<ul>
+<li>Single self-contained HTML file: <code>getUserMedia</code> for the camera, inline SVG
+  for the overlay, no build step or dependencies.</li>
+<li>Three draggable handles: a yellow <strong>vertex</strong> plus two white <strong>arm endpoints</strong>.
+  Dragging the vertex translates the whole protractor; dragging an arm endpoint
+  only moves that arm.</li>
+<li>The tick ring is a 180° protractor aligned so <strong>0° runs along arm 1</strong> and
+  the sweep goes toward arm 2, so the reading is always correct regardless of
+  which side of the vertex arm 2 is on. Major ticks every 30° (labelled), minor
+  ticks every 10°, fine ticks every 5°.</li>
+<li>Interior angle is computed from <code>atan2</code> of each arm and shown to one decimal,
+  both at the midpoint of the arc and in the bottom control panel.</li>
+<li><strong>Flip</strong> toggles between front and rear cameras (<code>facingMode: user</code> /
+  <code>environment</code>); the front camera is mirrored so it reads like a mirror.</li>
+<li><strong>Reset</strong> recentres the protractor on the viewport.</li>
+<li>Pointer Events (not touch events) so the same code handles mouse, touch and
+  stylus; <code>touch-action: none</code> on the overlay prevents scroll/zoom from eating
+  drags.</li>
+<li>Requires a secure context (HTTPS or <code>localhost</code>) for camera access — the
+  page surfaces a clear error message if <code>getUserMedia</code> is unavailable or
+  denied.</li>
+</ul></div>
+    </article>
+    <article class="app">
+      <h2><a href="signal-strength">Signal Strength</a></h2>
+      <div class="slug">signal-strength.html</div>
+      <blockquote class="prompt">make an app called signal strength, showing a map of Victoria/Melbourne
+and cell phone reception. search for multiple/best data sources and
+combine</blockquote>
+      <div class="summary"><p>Live map of mobile phone reception across Victoria and Melbourne, combining
+official coverage polygons and cell-site locations from multiple open
+data sources.</p>
+<h2>Prompt</h2>
+<blockquote>
+<p>make an app called signal strength, showing a map of Victoria/Melbourne
+and cell phone reception. search for multiple/best data sources and
+combine</p>
+</blockquote>
+<h2>Data sources</h2>
+<p>The app overlays two classes of data on an OpenStreetMap / CARTO dark
+basemap:</p>
+<ol>
+<li>
+<p><strong>ACCC Mobile Infrastructure — Coverage polygons.</strong> Sourced from the
+   federal Department of Infrastructure's ArcGIS service at
+   <code>spatial.infrastructure.gov.au</code>, which republishes the ACCC's annual
+   <em>Audit of Telecommunications Infrastructure Assets</em> (Infrastructure
+   RKR). Every quarter the three national MNOs (Telstra, Optus, TPG /
+   Vodafone) submit predicted coverage rasters for 3G / 4G / 5G, both
+   outdoor handheld and external-antenna. The app prefers the <em>outdoor</em>
+   variants since they match normal phone use.</p>
+</li>
+<li>
+<p><strong>ACMA Mobile Phone Sites.</strong> Points drawn from the ACMA Register of
+   Radiocommunications Licences — the authoritative list of licensed
+   transmitters in Australia. Useful for spotting why a pocket of no
+   reception exists (no tower nearby) or why coverage suddenly improves
+   (new tower).</p>
+</li>
+</ol>
+<p>Both services are consumed via ArcGIS REST <code>MapServer</code> endpoints using
+<a href="https://github.com/Esri/esri-leaflet">esri-leaflet</a>, so there's no
+server of our own and no API key.</p>
+<h2>Features</h2>
+<ul>
+<li><strong>Technology filter</strong> — toggle between all / 5G / 4G / 3G.</li>
+<li><strong>Carrier filter</strong> — show or hide Telstra, Optus and TPG independently
+  (each carrier renders as a distinct colour).</li>
+<li><strong>Cell-site toggle</strong> — overlay the ACMA RRL transmitter points.</li>
+<li><strong>Tap to identify</strong> — clicking anywhere runs an ArcGIS Identify query
+  and reports which carriers × techs claim coverage at that spot.</li>
+<li><strong>Locate me</strong> — drops a pin at your GPS location and runs an identify
+  right there, so you can compare "what the carrier promises" with
+  "what your phone actually sees".</li>
+<li><strong>Adjustable overlay opacity</strong> — the polygons are semi-transparent by
+  default so the basemap stays readable.</li>
+</ul>
+<h2>Implementation notes</h2>
+<ul>
+<li><strong>Dynamic layer discovery.</strong> Layer IDs inside the provider MapServer
+  drift between quarterly data refreshes, so rather than hard-coding
+  them the app fetches <code>?f=json</code> at boot and classifies each sub-layer
+  by matching carrier and technology keywords in the layer name. If
+  that fetch fails (e.g. the user is offline, or CORS), a hard-coded
+  2024 layout is used as a fallback so the map isn't empty.</li>
+<li><strong>Single identify request per click.</strong> ArcGIS supports identifying
+  against multiple sub-layers in one request. The app asks for every
+  currently-enabled layer at once and groups the results by carrier ×
+  tech, so the popup can say "Telstra: 5G, 4G · Optus: 4G · TPG: no
+  signal" after a single round-trip.</li>
+<li><strong>No build step.</strong> One self-contained HTML file. Leaflet and
+  esri-leaflet are loaded from unpkg.</li>
+<li>Carrier colours — Telstra blue, Optus orange, TPG/Vodafone red —
+  roughly mirror their brand palettes for quick recognition.</li>
+</ul>
+<h2>Caveats</h2>
+<ul>
+<li>Coverage polygons are <em>predictive</em> — what the carrier says should
+  work, not what a real device measures. They're known to be
+  optimistic, especially indoors. Treat them as an upper bound.</li>
+<li>The ACMA sites layer includes <em>all</em> licensed radiocommunications
+  transmitters, not just mobile cell towers, so at very high zoom
+  levels you'll see more points than just 3/4/5G sites.</li>
+<li>The app isn't attempting to crowdsource real-world measurements
+  (OpenCellID, etc.) because those services require per-user API keys
+  that don't belong in a static single-file page.</li>
+</ul></div>
+    </article>
+    <article class="app">
+      <h2><a href="spirit-level">Spirit Level</a></h2>
       <div class="slug">spirit-level.html</div>
       <blockquote class="prompt">plain html/js spirit level</blockquote>
       <div class="summary"><p>A browser-based bullseye + bar spirit level that uses the <code>DeviceOrientation</code>
