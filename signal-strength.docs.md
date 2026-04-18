@@ -52,10 +52,16 @@ server of our own and no API key.
 
 - **Dynamic layer discovery.** Layer IDs inside the provider MapServer
   drift between quarterly data refreshes, so rather than hard-coding
-  them the app fetches `?f=json` at boot and classifies each sub-layer
-  by matching carrier and technology keywords in the layer name. If
-  that fetch fails (e.g. the user is offline, or CORS), a hard-coded
-  2024 layout is used as a fallback so the map isn't empty.
+  them the app probes a short list of candidate ArcGIS services at
+  boot (newest ACCC service first) and classifies each sub-layer by
+  matching carrier and technology keywords in the layer name, picking
+  the first service that actually yields matches. Combined "Total" /
+  "ALL" layers are mapped to the "all tech" bucket so the UI toggle
+  can surface them even when per-generation sub-layers are missing.
+- **CORS fallback.** Metadata is fetched through `L.esri.request`,
+  which falls back to JSONP when the server doesn't send CORS
+  headers — plain `fetch()` would silently fail on older public
+  ArcGIS deployments.
 - **Single identify request per click.** ArcGIS supports identifying
   against multiple sub-layers in one request. The app asks for every
   currently-enabled layer at once and groups the results by carrier ×
