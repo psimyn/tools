@@ -359,19 +359,27 @@
   // technology combination as its own sub-layer. Layer IDs drift between
   // quarterly refreshes, so rather than hard-coding them we pull the
   // service's layer manifest at boot and classify each layer by the
-  // keywords in its name.
+  // keywords in its name. We try the newer "Mobile_Coverages_and_Sites_ACCC"
+  // service first (ACCC 2024 / 2025 data), then fall back to the older
+  // "Mobile_Phone_Coverage_by_provider" if needed.
   //
   // Cell-site points come from the ACMA Register of Radiocommunications
   // Licences — the authoritative list of licensed transmitters in AU.
 
-  const COVERAGE_URL =
-    "https://spatial.infrastructure.gov.au/server/rest/services/Communications/Mobile_Phone_Coverage_by_provider/MapServer";
+  const COVERAGE_CANDIDATES = [
+    "https://spatial.infrastructure.gov.au/server/rest/services/Mobile_Coverages_and_Sites_ACCC/MapServer",
+    "https://spatial.infrastructure.gov.au/server/rest/services/ACCC_Mobile_Sites_and_Coverages/MapServer",
+    "https://spatial.infrastructure.gov.au/server/rest/services/Communications/Mobile_Phone_Coverage_by_provider/MapServer",
+  ];
+  let COVERAGE_URL = COVERAGE_CANDIDATES[0];
   const SITES_URL =
     "https://spatial.infrastructure.gov.au/server/rest/services/Communications/Mobile_Phone_Sites/MapServer";
 
-  // Classify a layer name into {carrier, tech}. Names look like
-  // "Telstra 4G Outdoor Mobile Coverage ACCC 2024" — we just grep for the
-  // carrier token and the technology generation.
+  // Classify a layer name into {carrier, tech, kind}. Names in these
+  // services look like "Telstra 4G Outdoor Mobile Coverage ACCC 2024",
+  // "Optus Total External Antenna Mobile Coverage", "TPG 5G …", and so
+  // on. "Total" / "ALL" variants get mapped to tech = "total" so the
+  // "All tech" UI toggle can use them when present.
   function classifyLayer(name) {
     const n = (name || "").toLowerCase();
     let carrier = null;
@@ -382,6 +390,7 @@
     if (n.includes("5g")) tech = "5G";
     else if (n.includes("4g") || n.includes("lte")) tech = "4G";
     else if (n.includes("3g")) tech = "3G";
+    else if (n.includes("total") || n.match(/\ball\b/)) tech = "total";
     // Prefer outdoor over external-antenna when both exist, since outdoor
     // matches normal handheld use.
     const kind = n.includes("outdoor")
@@ -393,66 +402,107 @@
   }
 
   // Per-carrier registry populated from the MapServer's ?f=json response.
-  // Shape: { telstra: { "4G": [ids…], "5G": [ids…], … }, … }
+  // Shape: { telstra: { "4G": [ids…], "5G": [ids…], "total": [ids…] }, … }
   const LAYER_REGISTRY = { telstra: {}, optus: {}, tpg: {} };
-  // Fallback hard-coded IDs used only if the metadata fetch fails (CORS,
-  // offline, etc.). These match the service's 2024 layout and should at
-  // least render _something_ so the app isn't visibly broken.
-  const FALLBACK_REGISTRY = {
-    telstra: { "3G": [5], "4G": [4], "5G": [3] },
-    optus:   { "3G": [10], "4G": [9], "5G": [8] },
-    tpg:     { "3G": [15], "4G": [14], "5G": [13] },
-  };
   let registryReady = false;
+  let registryNote = "";
+
+  // ArcGIS "layers" entry is a flat list with parentLayerId; group layers
+  // have sublayerIds and no renderable polygons themselves, so we must
+  // skip anything that is a group. We detect a group as "has sublayerIds"
+  // or "type === 'Group Layer'".
+  function isGroup(l) {
+    return l.type === "Group Layer" || (Array.isArray(l.subLayerIds) && l.subLayerIds.length);
+  }
+
+  // esri-leaflet's request() auto-falls back to JSONP when a server
+  // doesn't send CORS headers, which matters for older public ArcGIS
+  // deployments where plain fetch() silently fails preflight.
+  function esriRequest(url, params) {
+    return new Promise((resolve, reject) => {
+      L.esri.request(url, params || {}, (err, response) => {
+        if (err) reject(err);
+        else resolve(response);
+      });
+    });
+  }
+
+  async function tryLoadFromService(url) {
+    const meta = await esriRequest(url, {});
+    const layers = Array.isArray(meta.layers) ? meta.layers : [];
+    const reg = { telstra: {}, optus: {}, tpg: {} };
+    const buckets = {}; // "carrier|tech" -> [{id, kind}]
+    for (const l of layers) {
+      if (isGroup(l)) continue;
+      const c = classifyLayer(l.name);
+      if (!c.carrier || !c.tech) continue;
+      const key = c.carrier + "|" + c.tech;
+      (buckets[key] = buckets[key] || []).push({ id: l.id, kind: c.kind });
+    }
+    let count = 0;
+    for (const key of Object.keys(buckets)) {
+      const [carrier, tech] = key.split("|");
+      const cand = buckets[key];
+      const byKind = (k) => cand.filter((x) => x.kind === k).map((x) => x.id);
+      const chosen = byKind("outdoor").length ? byKind("outdoor")
+                   : byKind("extant").length ? byKind("extant")
+                   : cand.map((x) => x.id);
+      reg[carrier][tech] = chosen;
+      count += chosen.length;
+    }
+    return { reg, count, url };
+  }
 
   async function loadLayerRegistry() {
-    try {
-      const res = await fetch(COVERAGE_URL + "?f=json", { credentials: "omit" });
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const meta = await res.json();
-      const layers = Array.isArray(meta.layers) ? meta.layers : [];
-      // Group candidate layers by carrier+tech, then pick the best kind.
-      const buckets = {}; // "carrier|tech" -> [{id, kind}]
-      for (const l of layers) {
-        const c = classifyLayer(l.name);
-        if (!c.carrier || !c.tech) continue;
-        const key = c.carrier + "|" + c.tech;
-        (buckets[key] = buckets[key] || []).push({ id: l.id, kind: c.kind });
+    let lastErr = null;
+    for (const url of COVERAGE_CANDIDATES) {
+      try {
+        const r = await tryLoadFromService(url);
+        // Only accept a service that actually produced matched layers.
+        if (r.count > 0) {
+          COVERAGE_URL = r.url;
+          Object.assign(LAYER_REGISTRY, r.reg);
+          registryNote = "Loaded " + r.count + " layers from " +
+            url.split("/services/")[1].split("/MapServer")[0];
+          registryReady = true;
+          return;
+        }
+      } catch (err) {
+        lastErr = err;
+        continue;
       }
-      for (const key of Object.keys(buckets)) {
-        const [carrier, tech] = key.split("|");
-        // Prefer outdoor; fall back to external-antenna; fall back to any.
-        const cand = buckets[key];
-        const byKind = (k) => cand.filter((x) => x.kind === k).map((x) => x.id);
-        const chosen = byKind("outdoor").length ? byKind("outdoor")
-                     : byKind("extant").length ? byKind("extant")
-                     : cand.map((x) => x.id);
-        LAYER_REGISTRY[carrier][tech] = chosen;
-      }
-      registryReady = true;
-    } catch (err) {
-      console.warn("Falling back to hard-coded layer IDs:", err);
-      Object.assign(LAYER_REGISTRY, FALLBACK_REGISTRY);
-      registryReady = true;
     }
+    registryReady = true;
+    registryNote = "Coverage metadata unreachable" +
+      (lastErr ? " (" + (lastErr.message || lastErr) + ")" : "") +
+      " — overlays may fail.";
+    console.warn(registryNote);
   }
 
   // Return the layer IDs to render for a given carrier and technology
-  // selection ("all" = every available tech for that carrier).
+  // selection. "all" returns everything available. For a specific tech,
+  // we include that tech's IDs, and if the service only ships a combined
+  // "total" layer for that carrier we include that too (since it's the
+  // best available proxy).
   function layersFor(carrier, tech) {
     const reg = LAYER_REGISTRY[carrier] || {};
     if (tech === "all") {
-      const all = [];
-      for (const t of Object.keys(reg)) all.push(...reg[t]);
-      return all;
+      const seen = new Set();
+      const out = [];
+      for (const t of Object.keys(reg)) {
+        for (const id of reg[t]) if (!seen.has(id)) { seen.add(id); out.push(id); }
+      }
+      return out;
     }
-    return reg[tech] || [];
+    const specific = reg[tech] || [];
+    if (specific.length) return specific;
+    return reg.total || [];
   }
 
   function makeCarrierLayer(carrier, tech) {
     const ids = layersFor(carrier, tech);
     if (!ids.length) return null;
-    return L.esri.dynamicMapLayer({
+    const layer = L.esri.dynamicMapLayer({
       url: COVERAGE_URL,
       layers: ids,
       opacity: 0.55,
@@ -461,6 +511,14 @@
       transparent: true,
       position: "back",
     });
+    layer.on("requeststart", () =>
+      showStatus("Fetching " + carrier + " coverage…", 2000)
+    );
+    layer.on("requesterror", (e) => {
+      console.warn("Coverage layer error", carrier, e);
+      showStatus("Could not load " + carrier + " overlay", 4000);
+    });
+    return layer;
   }
 
   const carrierState = {
@@ -542,12 +600,6 @@
     });
   });
 
-  // Kick off layer discovery, then render. If the metadata fetch is slow
-  // the user sees the basemap first rather than a blank screen.
-  loadLayerRegistry().then(() => {
-    rebuildAllCarriers();
-  });
-
   // --- Identify on click ------------------------------------------------
   //
   // ArcGIS supports a single "identify" request that returns every feature
@@ -559,6 +611,7 @@
   let hidePopupTimer = null;
 
   function showStatus(msg, ms) {
+    if (!msg) return;
     status.textContent = msg;
     status.classList.add("shown");
     clearTimeout(status._t);
@@ -685,6 +738,21 @@
     const pt = map.latLngToContainerPoint(popup._latlng);
     popup.style.left = pt.x + "px";
     popup.style.top = pt.y + "px";
+  });
+
+  // Kick off layer discovery, then render. The basemap is already visible
+  // at this point, so the user isn't looking at a blank page.
+  showStatus("Loading coverage layers…");
+  loadLayerRegistry().then(() => {
+    rebuildAllCarriers();
+    const total = ["telstra", "optus", "tpg"]
+      .map((c) => Object.values(LAYER_REGISTRY[c]).reduce((a, b) => a + b.length, 0))
+      .reduce((a, b) => a + b, 0);
+    if (total === 0) {
+      showStatus(registryNote || "No coverage layers found", 8000);
+    } else {
+      showStatus(registryNote, 3500);
+    }
   });
 })();
 </script>
