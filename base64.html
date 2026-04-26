@@ -1,0 +1,680 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0f1115" />
+<title>Base64 &amp; friends</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1f2430;
+    --ink: #e9edf5;
+    --muted: #8993a7;
+    --accent: #ffd84d;
+    --good: #4ade80;
+    --bad: #f87171;
+    --line: rgba(255, 255, 255, 0.08);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100svh;
+    overscroll-behavior: none;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+    gap: 12px;
+    max-width: 980px;
+    margin: 0 auto;
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 4px 4px;
+    flex-wrap: wrap;
+  }
+  h1 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 8px;
+  }
+  .seg {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    background: var(--panel-2);
+    border-radius: 9px;
+    padding: 3px;
+  }
+  .seg button {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 13px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .seg button:hover { color: var(--ink); }
+  .seg button.on {
+    background: var(--accent);
+    color: #0f1115;
+    font-weight: 600;
+  }
+  .toolbar .grow { flex: 1; }
+  label.opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--muted);
+    padding: 4px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    user-select: none;
+  }
+  label.opt input { accent-color: var(--accent); }
+  label.opt:hover { color: var(--ink); }
+
+  .panes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  @media (max-width: 720px) {
+    .panes { grid-template-columns: 1fr; }
+  }
+  .pane {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    min-height: 220px;
+    overflow: hidden;
+  }
+  .pane-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .pane-title {
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .pane-meta {
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  textarea {
+    flex: 1;
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: var(--ink);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 14px;
+    line-height: 1.45;
+    padding: 12px;
+    resize: vertical;
+    outline: none;
+    min-height: 200px;
+    word-break: break-all;
+  }
+  .pane.bad { border-color: rgba(248, 113, 113, 0.6); }
+  .pane.bad .pane-meta { color: var(--bad); }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 8px 12px;
+    justify-content: flex-end;
+  }
+  .actions button {
+    appearance: none;
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    color: var(--ink);
+    font: inherit;
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .actions button:hover { background: #2a3040; }
+  .actions button.primary {
+    background: var(--accent);
+    color: #0f1115;
+    border-color: transparent;
+    font-weight: 600;
+  }
+  .footer {
+    padding: 8px 4px 24px;
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+  }
+  .footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Base64 &amp; friends</h1>
+    <div id="status" class="pane-meta"></div>
+  </header>
+
+  <div class="toolbar">
+    <div class="seg" id="encoding-picker" role="tablist" aria-label="Encoding">
+      <!-- buttons injected -->
+    </div>
+    <div class="grow"></div>
+    <label class="opt" id="opt-padding-wrap" hidden>
+      <input type="checkbox" id="opt-padding" checked /> padding
+    </label>
+    <label class="opt" id="opt-urlsafe-wrap" hidden>
+      <input type="checkbox" id="opt-urlsafe" /> URL-safe
+    </label>
+    <label class="opt" id="opt-uppercase-wrap" hidden>
+      <input type="checkbox" id="opt-uppercase" /> uppercase
+    </label>
+    <label class="opt" id="opt-spaces-wrap" hidden>
+      <input type="checkbox" id="opt-spaces" checked /> spaces
+    </label>
+  </div>
+
+  <div class="panes">
+    <div class="pane" id="pane-plain">
+      <div class="pane-head">
+        <span class="pane-title">Plain text</span>
+        <span class="pane-meta" id="meta-plain">0 chars · 0 bytes</span>
+      </div>
+      <textarea id="plain" placeholder="Type or paste text here…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+    </div>
+    <div class="pane" id="pane-encoded">
+      <div class="pane-head">
+        <span class="pane-title" id="encoded-title">Encoded</span>
+        <span class="pane-meta" id="meta-encoded">0 chars</span>
+      </div>
+      <textarea id="encoded" placeholder="…or paste encoded data here." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button id="btn-sample">Sample</button>
+    <button id="btn-clear">Clear</button>
+    <button id="btn-swap" title="Swap panes">Swap ↔</button>
+    <button id="btn-copy-plain">Copy plain</button>
+    <button id="btn-copy-encoded" class="primary">Copy encoded</button>
+  </div>
+
+  <div class="footer">
+    UTF-8 throughout. Decode is permissive: whitespace ignored, padding optional.
+  </div>
+
+<script>
+(() => {
+  // --- Encodings registry ---------------------------------------------------
+  const utf8 = new TextEncoder();
+  const utf8d = new TextDecoder('utf-8', { fatal: true });
+
+  function bytesToString(bytes) { return utf8d.decode(bytes); }
+  function stringToBytes(str)  { return utf8.encode(str); }
+
+  // Base64 (standard or URL-safe)
+  const B64_STD = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const B64_URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  function b64encode(bytes, { urlsafe = false, padding = true } = {}) {
+    const A = urlsafe ? B64_URL : B64_STD;
+    let out = '';
+    let i = 0;
+    for (; i + 3 <= bytes.length; i += 3) {
+      const n = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
+      out += A[(n >> 18) & 63] + A[(n >> 12) & 63] + A[(n >> 6) & 63] + A[n & 63];
+    }
+    const rem = bytes.length - i;
+    if (rem === 1) {
+      const n = bytes[i] << 16;
+      out += A[(n >> 18) & 63] + A[(n >> 12) & 63] + (padding ? '==' : '');
+    } else if (rem === 2) {
+      const n = (bytes[i] << 16) | (bytes[i + 1] << 8);
+      out += A[(n >> 18) & 63] + A[(n >> 12) & 63] + A[(n >> 6) & 63] + (padding ? '=' : '');
+    }
+    return out;
+  }
+  function b64decode(text) {
+    // Accept either alphabet, ignore whitespace, allow missing padding.
+    const cleaned = text.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+    const stripped = cleaned.replace(/=+$/, '');
+    const lookup = new Int16Array(128).fill(-1);
+    for (let i = 0; i < B64_STD.length; i++) lookup[B64_STD.charCodeAt(i)] = i;
+    const out = [];
+    let buf = 0, bits = 0;
+    for (let i = 0; i < stripped.length; i++) {
+      const v = lookup[stripped.charCodeAt(i)];
+      if (v < 0) throw new Error(`Invalid base64 character "${stripped[i]}" at position ${i}`);
+      buf = (buf << 6) | v;
+      bits += 6;
+      if (bits >= 8) {
+        bits -= 8;
+        out.push((buf >> bits) & 0xff);
+      }
+    }
+    return new Uint8Array(out);
+  }
+
+  // Base32 (RFC 4648)
+  const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  function b32encode(bytes, { padding = true } = {}) {
+    let out = '';
+    let buf = 0, bits = 0;
+    for (let i = 0; i < bytes.length; i++) {
+      buf = (buf << 8) | bytes[i];
+      bits += 8;
+      while (bits >= 5) {
+        bits -= 5;
+        out += B32[(buf >> bits) & 31];
+      }
+    }
+    if (bits > 0) out += B32[(buf << (5 - bits)) & 31];
+    if (padding) {
+      const pad = (8 - (out.length % 8)) % 8;
+      out += '='.repeat(pad);
+    }
+    return out;
+  }
+  function b32decode(text) {
+    const cleaned = text.replace(/\s+/g, '').replace(/=+$/, '').toUpperCase();
+    const lookup = new Int16Array(128).fill(-1);
+    for (let i = 0; i < B32.length; i++) lookup[B32.charCodeAt(i)] = i;
+    const out = [];
+    let buf = 0, bits = 0;
+    for (let i = 0; i < cleaned.length; i++) {
+      const v = lookup[cleaned.charCodeAt(i)];
+      if (v < 0) throw new Error(`Invalid base32 character "${cleaned[i]}" at position ${i}`);
+      buf = (buf << 5) | v;
+      bits += 5;
+      if (bits >= 8) {
+        bits -= 8;
+        out.push((buf >> bits) & 0xff);
+      }
+    }
+    return new Uint8Array(out);
+  }
+
+  // Hex (Base16)
+  function hexencode(bytes, { uppercase = false } = {}) {
+    const A = uppercase ? '0123456789ABCDEF' : '0123456789abcdef';
+    let out = '';
+    for (let i = 0; i < bytes.length; i++) {
+      out += A[bytes[i] >> 4] + A[bytes[i] & 15];
+    }
+    return out;
+  }
+  function hexdecode(text) {
+    const cleaned = text.replace(/\s+/g, '').replace(/^0x/i, '');
+    if (cleaned.length % 2 !== 0) throw new Error('Hex input has odd length');
+    const out = new Uint8Array(cleaned.length / 2);
+    for (let i = 0; i < out.length; i++) {
+      const hi = parseInt(cleaned[2 * i], 16);
+      const lo = parseInt(cleaned[2 * i + 1], 16);
+      if (Number.isNaN(hi) || Number.isNaN(lo)) {
+        throw new Error(`Invalid hex character near position ${2 * i}`);
+      }
+      out[i] = (hi << 4) | lo;
+    }
+    return out;
+  }
+
+  // URL percent-encoding
+  function urlencode(str) {
+    return encodeURIComponent(str);
+  }
+  function urldecode(str) {
+    return decodeURIComponent(str.replace(/\+/g, '%20'));
+  }
+
+  // HTML entity encoding
+  function htmlencode(str) {
+    return str.replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    }[c]));
+  }
+  const NAMED_ENT = {
+    amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+    copy: '©', reg: '®', trade: '™', hellip: '…',
+    mdash: '—', ndash: '–', lsquo: '‘', rsquo: '’',
+    ldquo: '“', rdquo: '”',
+  };
+  function htmldecode(str) {
+    return str.replace(/&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z]+);/g, (m, body) => {
+      if (body.startsWith('#x') || body.startsWith('#X')) {
+        const n = parseInt(body.slice(2), 16);
+        return Number.isFinite(n) ? String.fromCodePoint(n) : m;
+      }
+      if (body.startsWith('#')) {
+        const n = parseInt(body.slice(1), 10);
+        return Number.isFinite(n) ? String.fromCodePoint(n) : m;
+      }
+      return Object.prototype.hasOwnProperty.call(NAMED_ENT, body) ? NAMED_ENT[body] : m;
+    });
+  }
+
+  // Binary (8 bits per byte)
+  function binencode(bytes, { spaces = true } = {}) {
+    const parts = new Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) parts[i] = bytes[i].toString(2).padStart(8, '0');
+    return parts.join(spaces ? ' ' : '');
+  }
+  function bindecode(text) {
+    const cleaned = text.replace(/\s+/g, '');
+    if (cleaned.length === 0) return new Uint8Array(0);
+    if (!/^[01]+$/.test(cleaned)) throw new Error('Binary must be 0s and 1s');
+    if (cleaned.length % 8 !== 0) throw new Error(`Binary length ${cleaned.length} is not a multiple of 8`);
+    const out = new Uint8Array(cleaned.length / 8);
+    for (let i = 0; i < out.length; i++) out[i] = parseInt(cleaned.slice(i * 8, i * 8 + 8), 2);
+    return out;
+  }
+
+  // ASCII85 (Adobe-flavored, with <~ ~> markers optional on decode)
+  function a85encode(bytes) {
+    let out = '';
+    let i = 0;
+    for (; i + 4 <= bytes.length; i += 4) {
+      const n = ((bytes[i] * 0x1000000) + (bytes[i + 1] << 16) + (bytes[i + 2] << 8) + bytes[i + 3]) >>> 0;
+      if (n === 0) { out += 'z'; continue; }
+      const c5 = n % 85; const r4 = (n - c5) / 85;
+      const c4 = r4 % 85; const r3 = (r4 - c4) / 85;
+      const c3 = r3 % 85; const r2 = (r3 - c3) / 85;
+      const c2 = r2 % 85; const c1 = (r2 - c2) / 85;
+      out += String.fromCharCode(c1 + 33, c2 + 33, c3 + 33, c4 + 33, c5 + 33);
+    }
+    const rem = bytes.length - i;
+    if (rem > 0) {
+      let n = 0;
+      for (let k = 0; k < 4; k++) n = (n * 256) + (k < rem ? bytes[i + k] : 0);
+      const digits = [];
+      for (let k = 0; k < 5; k++) { digits.unshift(n % 85); n = Math.floor(n / 85); }
+      for (let k = 0; k <= rem; k++) out += String.fromCharCode(digits[k] + 33);
+    }
+    return out;
+  }
+  function a85decode(text) {
+    let cleaned = text.replace(/\s+/g, '');
+    if (cleaned.startsWith('<~')) cleaned = cleaned.slice(2);
+    if (cleaned.endsWith('~>')) cleaned = cleaned.slice(0, -2);
+    const out = [];
+    let group = [];
+    for (let i = 0; i < cleaned.length; i++) {
+      const ch = cleaned[i];
+      if (ch === 'z') {
+        if (group.length !== 0) throw new Error(`'z' inside a group at position ${i}`);
+        out.push(0, 0, 0, 0);
+        continue;
+      }
+      const code = ch.charCodeAt(0) - 33;
+      if (code < 0 || code > 84) throw new Error(`Invalid ASCII85 char "${ch}" at position ${i}`);
+      group.push(code);
+      if (group.length === 5) {
+        let n = 0;
+        for (let k = 0; k < 5; k++) n = n * 85 + group[k];
+        if (n > 0xffffffff) throw new Error('ASCII85 group out of range');
+        out.push((n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff);
+        group = [];
+      }
+    }
+    if (group.length === 1) throw new Error('ASCII85 trailing group of length 1 is invalid');
+    if (group.length > 0) {
+      const need = group.length;
+      while (group.length < 5) group.push(84);
+      let n = 0;
+      for (let k = 0; k < 5; k++) n = n * 85 + group[k];
+      const bs = [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff];
+      for (let k = 0; k < need - 1; k++) out.push(bs[k]);
+    }
+    return new Uint8Array(out);
+  }
+
+  // --- Encoding definitions -------------------------------------------------
+  // Each: encode(plainString) -> encodedString;  decode(encodedString) -> plainString
+  // `opts` lists which extra checkboxes apply.
+  const ENCODINGS = {
+    base64: {
+      label: 'Base64',
+      opts: ['urlsafe', 'padding'],
+      encode: (s, o) => b64encode(stringToBytes(s), o),
+      decode: (s)    => bytesToString(b64decode(s)),
+    },
+    base32: {
+      label: 'Base32',
+      opts: ['padding'],
+      encode: (s, o) => b32encode(stringToBytes(s), o),
+      decode: (s)    => bytesToString(b32decode(s)),
+    },
+    hex: {
+      label: 'Hex',
+      opts: ['uppercase'],
+      encode: (s, o) => hexencode(stringToBytes(s), o),
+      decode: (s)    => bytesToString(hexdecode(s)),
+    },
+    url: {
+      label: 'URL',
+      opts: [],
+      encode: (s)    => urlencode(s),
+      decode: (s)    => urldecode(s),
+    },
+    html: {
+      label: 'HTML',
+      opts: [],
+      encode: (s)    => htmlencode(s),
+      decode: (s)    => htmldecode(s),
+    },
+    binary: {
+      label: 'Binary',
+      opts: ['spaces'],
+      encode: (s, o) => binencode(stringToBytes(s), o),
+      decode: (s)    => bytesToString(bindecode(s)),
+    },
+    ascii85: {
+      label: 'ASCII85',
+      opts: [],
+      encode: (s)    => a85encode(stringToBytes(s)),
+      decode: (s)    => bytesToString(a85decode(s)),
+    },
+  };
+
+  // --- DOM ------------------------------------------------------------------
+  const picker      = document.getElementById('encoding-picker');
+  const plainEl     = document.getElementById('plain');
+  const encodedEl   = document.getElementById('encoded');
+  const paneEnc     = document.getElementById('pane-encoded');
+  const panePlain   = document.getElementById('pane-plain');
+  const metaPlain   = document.getElementById('meta-plain');
+  const metaEnc     = document.getElementById('meta-encoded');
+  const status      = document.getElementById('status');
+  const titleEnc    = document.getElementById('encoded-title');
+
+  const optWraps = {
+    padding:   document.getElementById('opt-padding-wrap'),
+    urlsafe:   document.getElementById('opt-urlsafe-wrap'),
+    uppercase: document.getElementById('opt-uppercase-wrap'),
+    spaces:    document.getElementById('opt-spaces-wrap'),
+  };
+  const optInputs = {
+    padding:   document.getElementById('opt-padding'),
+    urlsafe:   document.getElementById('opt-urlsafe'),
+    uppercase: document.getElementById('opt-uppercase'),
+    spaces:    document.getElementById('opt-spaces'),
+  };
+
+  let currentEnc = 'base64';
+  let lastEdited = 'plain'; // 'plain' or 'encoded'
+
+  // Build encoding picker
+  for (const [key, def] of Object.entries(ENCODINGS)) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = def.label;
+    b.dataset.enc = key;
+    b.setAttribute('role', 'tab');
+    if (key === currentEnc) b.classList.add('on');
+    b.addEventListener('click', () => setEncoding(key));
+    picker.appendChild(b);
+  }
+
+  function setEncoding(key) {
+    if (!ENCODINGS[key]) return;
+    currentEnc = key;
+    for (const b of picker.querySelectorAll('button')) {
+      b.classList.toggle('on', b.dataset.enc === key);
+    }
+    titleEnc.textContent = ENCODINGS[key].label;
+    encodedEl.placeholder = `…or paste ${ENCODINGS[key].label} here.`;
+    // Show only the option toggles relevant to this encoding.
+    const visible = new Set(ENCODINGS[key].opts);
+    for (const [name, wrap] of Object.entries(optWraps)) {
+      wrap.hidden = !visible.has(name);
+    }
+    sync();
+  }
+
+  function getOpts() {
+    return {
+      padding:   optInputs.padding.checked,
+      urlsafe:   optInputs.urlsafe.checked,
+      uppercase: optInputs.uppercase.checked,
+      spaces:    optInputs.spaces.checked,
+    };
+  }
+
+  // --- Sync ----------------------------------------------------------------
+  function sync() {
+    const def = ENCODINGS[currentEnc];
+    const opts = getOpts();
+    if (lastEdited === 'plain') {
+      paneEnc.classList.remove('bad');
+      try {
+        encodedEl.value = def.encode(plainEl.value, opts);
+        status.textContent = '';
+      } catch (e) {
+        encodedEl.value = '';
+        status.textContent = `encode: ${e.message}`;
+      }
+    } else {
+      panePlain.classList.remove('bad');
+      const src = encodedEl.value;
+      if (src.length === 0) {
+        plainEl.value = '';
+        status.textContent = '';
+      } else {
+        try {
+          plainEl.value = def.decode(src, opts);
+          status.textContent = '';
+        } catch (e) {
+          plainEl.value = '';
+          panePlain.classList.add('bad');
+          status.textContent = `decode: ${e.message}`;
+        }
+      }
+    }
+    updateMeta();
+  }
+
+  function updateMeta() {
+    const plainStr = plainEl.value;
+    const byteLen = stringToBytes(plainStr).length;
+    metaPlain.textContent = `${plainStr.length} chars · ${byteLen} bytes`;
+    metaEnc.textContent = `${encodedEl.value.length} chars`;
+  }
+
+  // --- Event wiring --------------------------------------------------------
+  plainEl.addEventListener('input', () => { lastEdited = 'plain'; sync(); });
+  encodedEl.addEventListener('input', () => { lastEdited = 'encoded'; sync(); });
+
+  for (const inp of Object.values(optInputs)) {
+    inp.addEventListener('change', () => sync());
+  }
+
+  document.getElementById('btn-clear').addEventListener('click', () => {
+    plainEl.value = '';
+    encodedEl.value = '';
+    panePlain.classList.remove('bad');
+    paneEnc.classList.remove('bad');
+    status.textContent = '';
+    lastEdited = 'plain';
+    updateMeta();
+    plainEl.focus();
+  });
+
+  document.getElementById('btn-swap').addEventListener('click', () => {
+    // Move the encoded side into plain, then re-encode from there.
+    const src = encodedEl.value;
+    plainEl.value = src;
+    encodedEl.value = '';
+    lastEdited = 'plain';
+    sync();
+  });
+
+  document.getElementById('btn-sample').addEventListener('click', () => {
+    plainEl.value = 'The quick brown fox jumps over the lazy dog. — café 🦊';
+    lastEdited = 'plain';
+    sync();
+  });
+
+  async function copyText(text, btn) {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = orig; }, 900);
+    } catch {
+      // Fallback: select the source
+    }
+  }
+  document.getElementById('btn-copy-plain').addEventListener('click', (e) => copyText(plainEl.value, e.currentTarget));
+  document.getElementById('btn-copy-encoded').addEventListener('click', (e) => copyText(encodedEl.value, e.currentTarget));
+
+  // Init
+  setEncoding(currentEnc);
+  updateMeta();
+})();
+</script>
+</body>
+</html>
