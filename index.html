@@ -177,10 +177,11 @@ have some options to flatten or nest/dot.name fields. then a copy button to
 copy to clipboard in a format I can paste into a sheet. or if that is
 possible with a sheets url to prefill that&#x27;d be super</blockquote>
       <div class="summary"><p>Paste JSON or fetch a URL, get a table you can drop straight into Google
-Sheets or Excel. Toggle between flat (<code>address.city</code>) and nested (top-level
-keys only, with sub-objects shown as JSON) layouts. The <strong>Copy for Sheets</strong>
-button puts a TSV on the clipboard; <strong>Copy &amp; open Sheets</strong> does the same and
-opens a fresh <code>sheets.new</code> tab so you only need to hit ⌘/Ctrl-V.</p>
+Sheets or Excel. Every nested field becomes its own dot-path column —
+<code>address.city</code>, <code>posts.0.title</code>, etc. — so nothing hides inside a
+JSON-stringified cell. The <strong>Copy for Sheets</strong> button puts a TSV on the
+clipboard; <strong>Copy &amp; open Sheets</strong> does the same and opens a fresh
+<code>sheets.new</code> tab so you only need to hit ⌘/Ctrl-V.</p>
 <h2>Prompt</h2>
 <blockquote>
 <p>new tool called json sheets</p>
@@ -197,11 +198,13 @@ possible with a sheets url to prefill that'd be super</p>
   <code>rows</code>, <code>records</code>, <code>values</code>, <code>entries</code>) one or two levels deep, then falls
   back to any top-level array, then to treating the whole object as a single
   row.</li>
-<li><strong>Flatten mode</strong> recurses into nested objects, joining keys with dots
-  (<code>address.city</code>). Arrays stay as compact JSON in a single cell — expanding
-  them column-wise tends to produce ragged sheets.</li>
-<li><strong>Nested mode</strong> keeps only top-level keys; sub-objects/arrays are
-  JSON-stringified into one cell.</li>
+<li><strong>Flattening.</strong> Nested objects always recurse into dot.path columns
+  (<code>address.city</code>, <code>address.country</code>).</li>
+<li><strong>Arrays of primitives</strong> are joined with <code>,</code> so they read cleanly in a
+  cell (<code>tags</code> → <code>math, cs</code>).</li>
+<li><strong>Arrays of objects</strong> expand by index when <em>expand arrays of objects</em> is
+  on (<code>posts.0.title</code>, <code>posts.1.title</code>, …) and stay as compact JSON in a
+  single cell when it's off — handy if those arrays are long or ragged.</li>
 <li><strong>Headers</strong> are the union of keys across all rows, in first-seen order.</li>
 </ul>
 <h2>Copying &amp; Sheets</h2>

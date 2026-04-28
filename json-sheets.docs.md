@@ -1,10 +1,11 @@
 # JSON Sheets
 
 Paste JSON or fetch a URL, get a table you can drop straight into Google
-Sheets or Excel. Toggle between flat (`address.city`) and nested (top-level
-keys only, with sub-objects shown as JSON) layouts. The **Copy for Sheets**
-button puts a TSV on the clipboard; **Copy & open Sheets** does the same and
-opens a fresh `sheets.new` tab so you only need to hit ⌘/Ctrl-V.
+Sheets or Excel. Every nested field becomes its own dot-path column —
+`address.city`, `posts.0.title`, etc. — so nothing hides inside a
+JSON-stringified cell. The **Copy for Sheets** button puts a TSV on the
+clipboard; **Copy & open Sheets** does the same and opens a fresh
+`sheets.new` tab so you only need to hit ⌘/Ctrl-V.
 
 ## Prompt
 
@@ -23,11 +24,13 @@ opens a fresh `sheets.new` tab so you only need to hit ⌘/Ctrl-V.
   `rows`, `records`, `values`, `entries`) one or two levels deep, then falls
   back to any top-level array, then to treating the whole object as a single
   row.
-- **Flatten mode** recurses into nested objects, joining keys with dots
-  (`address.city`). Arrays stay as compact JSON in a single cell — expanding
-  them column-wise tends to produce ragged sheets.
-- **Nested mode** keeps only top-level keys; sub-objects/arrays are
-  JSON-stringified into one cell.
+- **Flattening.** Nested objects always recurse into dot.path columns
+  (`address.city`, `address.country`).
+- **Arrays of primitives** are joined with `, ` so they read cleanly in a
+  cell (`tags` → `math, cs`).
+- **Arrays of objects** expand by index when *expand arrays of objects* is
+  on (`posts.0.title`, `posts.1.title`, …) and stay as compact JSON in a
+  single cell when it's off — handy if those arrays are long or ragged.
 - **Headers** are the union of keys across all rows, in first-seen order.
 
 ## Copying & Sheets
