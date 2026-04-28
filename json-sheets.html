@@ -94,32 +94,6 @@
     white-space: nowrap;
   }
   .url-row button:hover { background: #2a3040; }
-  .seg {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    background: var(--panel-2);
-    border-radius: 9px;
-    padding: 3px;
-  }
-  .seg button {
-    appearance: none;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    font: inherit;
-    font-size: 13px;
-    padding: 6px 10px;
-    border-radius: 6px;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .seg button:hover { color: var(--ink); }
-  .seg button.on {
-    background: var(--accent);
-    color: #0f1115;
-    font-weight: 600;
-  }
   label.opt {
     display: inline-flex;
     align-items: center;
@@ -277,10 +251,9 @@
       <input type="url" id="url" placeholder="https://api.example.com/things.json" autocomplete="off" spellcheck="false" />
       <button id="btn-fetch">Fetch</button>
     </div>
-    <div class="seg" role="tablist" aria-label="Shape">
-      <button type="button" data-mode="flatten" class="on">Flatten (dot.path)</button>
-      <button type="button" data-mode="nested">Nested (top-level)</button>
-    </div>
+    <label class="opt">
+      <input type="checkbox" id="opt-arrays" checked /> expand arrays of objects
+    </label>
     <label class="opt">
       <input type="checkbox" id="opt-headers" checked /> headers row
     </label>
@@ -342,20 +315,12 @@ Examples that work:
   const outputTitle = document.getElementById('output-title');
   const tableWrap   = document.getElementById('table-wrap');
   const headersOpt  = document.getElementById('opt-headers');
-  const segButtons  = document.querySelectorAll('.seg button[data-mode]');
+  const arraysOpt   = document.getElementById('opt-arrays');
 
-  let mode = 'flatten'; // 'flatten' | 'nested'
   let lastTable = null; // { headers: string[], rows: string[][] } | null
 
-  // --- Mode picker ---------------------------------------------------------
-  for (const b of segButtons) {
-    b.addEventListener('click', () => {
-      mode = b.dataset.mode;
-      for (const x of segButtons) x.classList.toggle('on', x === b);
-      render();
-    });
-  }
   headersOpt.addEventListener('change', () => render());
+  arraysOpt.addEventListener('change', () => render());
 
   // --- Helpers -------------------------------------------------------------
   function isPlainObject(v) {
@@ -393,24 +358,50 @@ Examples that work:
     return { rows: [{ value: json }], path: null };
   }
 
-  // Flatten an object into dot.path keys. Arrays and primitives are left
-  // as final values; nested plain objects recurse.
-  function flatten(obj, prefix, out) {
-    if (!isPlainObject(obj)) {
-      out[prefix || ''] = obj;
+  // Flatten any value into dot.path keys.
+  //   { a: { b: 1 } }            -> { 'a.b': 1 }
+  //   { tags: ['x', 'y'] }       -> { tags: 'x, y' }    // primitives joined
+  //   { tags: [{n: 'x'}] }       -> { 'tags.0.n': 'x' } // objects-in-array
+  //                                                     // get indexed paths
+  // When `expandArrays` is false, arrays are always JSON-stringified.
+  function flatten(value, prefix, out, expandArrays) {
+    if (isPlainObject(value)) {
+      const keys = Object.keys(value);
+      if (keys.length === 0) {
+        out[prefix || ''] = '';
+        return out;
+      }
+      for (const k of keys) {
+        const key = prefix ? `${prefix}.${k}` : k;
+        flatten(value[k], key, out, expandArrays);
+      }
       return out;
     }
-    for (const k of Object.keys(obj)) {
-      const key = prefix ? `${prefix}.${k}` : k;
-      const v = obj[k];
-      if (isPlainObject(v)) {
-        // Empty objects become an empty cell rather than a phantom branch.
-        if (Object.keys(v).length === 0) out[key] = '';
-        else flatten(v, key, out);
-      } else {
-        out[key] = v;
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        out[prefix || ''] = '';
+        return out;
       }
+      const allPrimitive = value.every(
+        (x) => x === null || (typeof x !== 'object'),
+      );
+      if (allPrimitive) {
+        // Primitives → comma-joined so they read cleanly in a sheet.
+        out[prefix || ''] = value.map((x) => (x === null ? '' : String(x))).join(', ');
+        return out;
+      }
+      if (!expandArrays) {
+        out[prefix || ''] = JSON.stringify(value);
+        return out;
+      }
+      // Mixed/object arrays → recurse with index path.
+      value.forEach((item, i) => {
+        const key = prefix ? `${prefix}.${i}` : String(i);
+        flatten(item, key, out, expandArrays);
+      });
+      return out;
     }
+    out[prefix || ''] = value;
     return out;
   }
 
@@ -423,17 +414,13 @@ Examples that work:
     try { return JSON.stringify(v); } catch { return String(v); }
   }
 
-  // Build { headers, rows } from raw rows + mode.
-  function buildTable(rawRows, currentMode) {
+  // Build { headers, rows } from raw rows.
+  function buildTable(rawRows, expandArrays) {
     const seen = new Map(); // key -> insertion order
     const flat = rawRows.map((row) => {
       let obj;
-      if (isPlainObject(row)) {
-        obj = currentMode === 'flatten' ? flatten(row, '', {}) : { ...row };
-      } else if (Array.isArray(row)) {
-        // Treat arrays as positional cells: 0, 1, 2, ...
-        obj = {};
-        row.forEach((v, i) => { obj[String(i)] = v; });
+      if (isPlainObject(row) || Array.isArray(row)) {
+        obj = flatten(row, '', {}, expandArrays);
       } else {
         obj = { value: row };
       }
@@ -482,7 +469,7 @@ Examples that work:
     }
 
     const { rows: rawRows, path } = findRows(parsed);
-    const table = buildTable(rawRows, mode);
+    const table = buildTable(rawRows, arraysOpt.checked);
     lastTable = table;
     outputTitle.textContent = path ? `Table · from "${path}"` : 'Table';
     metaOutput.textContent = `${table.rows.length.toLocaleString()} rows · ${table.headers.length} cols`;
@@ -597,9 +584,9 @@ Examples that work:
   document.getElementById('btn-sample').addEventListener('click', () => {
     inputEl.value = JSON.stringify({
       results: [
-        { id: 1, name: 'Ada Lovelace',  score: 91, address: { city: 'London',  country: 'UK' }, tags: ['math', 'cs']      },
-        { id: 2, name: 'Grace Hopper',  score: 88, address: { city: 'NYC',     country: 'US' }, tags: ['cs', 'navy']      },
-        { id: 3, name: 'Katherine J.',  score: 95, address: { city: 'Hampton', country: 'US' }, tags: ['math', 'physics'] },
+        { id: 1, name: 'Ada Lovelace',  address: { city: 'London',  country: 'UK' }, tags: ['math', 'cs'],      posts: [{ title: 'Notes on the analytical engine', views: 1843 }] },
+        { id: 2, name: 'Grace Hopper',  address: { city: 'NYC',     country: 'US' }, tags: ['cs', 'navy'],      posts: [{ title: 'A-0',                          views: 1952 }, { title: 'COBOL', views: 1959 }] },
+        { id: 3, name: 'Katherine J.',  address: { city: 'Hampton', country: 'US' }, tags: ['math', 'physics'], posts: [] },
       ],
     }, null, 2);
     render();
