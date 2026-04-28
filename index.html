@@ -96,6 +96,47 @@
       <p>A collection of small, single-file web apps, each built from a prompt.</p>
     </header>
         <article class="app">
+      <h2><a href="base64">Base64 &amp; friends</a></h2>
+      <div class="slug">base64.html</div>
+      <blockquote class="prompt">base64 encoder and decoder, with options for other encodings too</blockquote>
+      <div class="summary"><p>A two-pane encoder/decoder. Type into either side and the other updates live —
+plain text on the left, encoded on the right. Pick the encoding from the top
+bar; relevant options (padding, URL-safe alphabet, hex case, binary spaces)
+appear automatically.</p>
+<h2>Prompt</h2>
+<blockquote>
+<p>base64 encoder and decoder, with options for other encodings too</p>
+</blockquote>
+<h2>Encodings</h2>
+<ul>
+<li><strong>Base64</strong> (RFC 4648) — toggles for URL-safe alphabet (<code>-_</code> instead of <code>+/</code>)
+  and trailing padding. Decode accepts either alphabet, with or without
+  padding, and ignores whitespace.</li>
+<li><strong>Base32</strong> (RFC 4648) — <code>A–Z</code> <code>2–7</code>, optional <code>=</code> padding.</li>
+<li><strong>Hex</strong> (Base16) — lowercase or uppercase, with whitespace and a leading
+  <code>0x</code> ignored on decode.</li>
+<li><strong>URL</strong> — percent-encoding via <code>encodeURIComponent</code> / <code>decodeURIComponent</code>,
+  with <code>+</code> → space on decode for form-style input.</li>
+<li><strong>HTML</strong> — escapes <code>&amp; &lt; &gt; " '</code> on encode; on decode resolves named entities
+  (<code>&amp;amp;</code>, <code>&amp;copy;</code>, …), decimal <code>&amp;#65;</code>, and hex <code>&amp;#x41;</code>.</li>
+<li><strong>Binary</strong> — 8 bits per byte, optional spaces between bytes.</li>
+<li><strong>ASCII85</strong> — Adobe-flavored, with the <code>&lt;~</code> <code>~&gt;</code> markers stripped on decode.</li>
+</ul>
+<h2>Notes</h2>
+<ul>
+<li>All encodings round-trip arbitrary UTF-8 (including emoji). Base64, Base32,
+  Hex, Binary and ASCII85 operate on raw bytes; URL and HTML work directly on
+  the string.</li>
+<li>Decode is forgiving: whitespace is ignored everywhere, padding is optional
+  on Base64/Base32, and Base64 accepts both standard and URL-safe alphabets in
+  the same input.</li>
+<li>Errors (invalid characters, odd-length hex, mis-padded binary) are shown in
+  the status bar and the failing pane is outlined red, instead of silently
+  producing junk.</li>
+<li>Single-file, no dependencies.</li>
+</ul></div>
+    </article>
+    <article class="app">
       <h2><a href="bpm">BPM</a></h2>
       <div class="slug">bpm.html</div>
       <blockquote class="prompt">bpm, a bpm detector. can tap button, or listen to mic. if listening to mic and tapping, combine the inputs or use the taps to guide transient detection. very minimal UI. basically just a button and a number</blockquote>
@@ -123,6 +164,63 @@ and snap it to the right harmonic.</p>
   The displayed number is a weighted blend (60 % tap, 40 % mic), and turns
   green when the two sources agree within 3 BPM.</li>
 <li>No build step, no dependencies — a single <code>.html</code> file.</li>
+</ul></div>
+    </article>
+    <article class="app">
+      <h2><a href="json-sheets">JSON Sheets</a></h2>
+      <div class="slug">json-sheets.html</div>
+      <blockquote class="prompt">new tool called json sheets
+
+paste a url to fetch an endpoint, or a blob of json text
+gets converted into a table with heading names from keys
+have some options to flatten or nest/dot.name fields. then a copy button to
+copy to clipboard in a format I can paste into a sheet. or if that is
+possible with a sheets url to prefill that&#x27;d be super</blockquote>
+      <div class="summary"><p>Paste JSON or fetch a URL, get a table you can drop straight into Google
+Sheets or Excel. Toggle between flat (<code>address.city</code>) and nested (top-level
+keys only, with sub-objects shown as JSON) layouts. The <strong>Copy for Sheets</strong>
+button puts a TSV on the clipboard; <strong>Copy &amp; open Sheets</strong> does the same and
+opens a fresh <code>sheets.new</code> tab so you only need to hit ⌘/Ctrl-V.</p>
+<h2>Prompt</h2>
+<blockquote>
+<p>new tool called json sheets</p>
+<p>paste a url to fetch an endpoint, or a blob of json text
+gets converted into a table with heading names from keys
+have some options to flatten or nest/dot.name fields. then a copy button to
+copy to clipboard in a format I can paste into a sheet. or if that is
+possible with a sheets url to prefill that'd be super</p>
+</blockquote>
+<h2>How it works</h2>
+<ul>
+<li><strong>Row detection.</strong> If the JSON is an array, that's the rows. If it's an
+  object, the tool unwraps common wrappers (<code>results</code>, <code>data</code>, <code>items</code>,
+  <code>rows</code>, <code>records</code>, <code>values</code>, <code>entries</code>) one or two levels deep, then falls
+  back to any top-level array, then to treating the whole object as a single
+  row.</li>
+<li><strong>Flatten mode</strong> recurses into nested objects, joining keys with dots
+  (<code>address.city</code>). Arrays stay as compact JSON in a single cell — expanding
+  them column-wise tends to produce ragged sheets.</li>
+<li><strong>Nested mode</strong> keeps only top-level keys; sub-objects/arrays are
+  JSON-stringified into one cell.</li>
+<li><strong>Headers</strong> are the union of keys across all rows, in first-seen order.</li>
+</ul>
+<h2>Copying &amp; Sheets</h2>
+<ul>
+<li><strong>Copy for Sheets</strong> writes TSV to the clipboard. Embedded tabs/newlines are
+  collapsed to spaces so each value lands in exactly one cell on paste.</li>
+<li><strong>Copy CSV</strong> uses RFC-4180 quoting (commas, quotes and newlines preserved).</li>
+<li><strong>Copy &amp; open Sheets</strong> copies TSV and opens <code>https://sheets.new</code>. Google
+  Sheets has no public URL for prefilling arbitrary data into a new sheet, so
+  one paste is the closest we can get.</li>
+</ul>
+<h2>Notes</h2>
+<ul>
+<li>Fetching arbitrary URLs from the browser is subject to CORS — if a server
+  doesn't allow cross-origin reads, the fetch fails and you'll need to paste
+  the JSON manually.</li>
+<li>The preview is capped at 500 rows for responsiveness; copy always uses the
+  full dataset.</li>
+<li>Single-file, no dependencies.</li>
 </ul></div>
     </article>
     <article class="app">
