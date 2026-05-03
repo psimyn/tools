@@ -52,7 +52,10 @@ def _parse_docs(path: Path) -> tuple[str | None, str, str | None]:
     """Return (title, summary_html, prompt) from a .docs.md file.
 
     - title: first H1 (`# ...`) if present, otherwise None
-    - summary_html: rendered markdown of everything else
+    - summary_html: rendered markdown of the lead paragraph(s) — everything
+      between the H1 and the first H2. The deeper "Notes" / "Implementation"
+      / "Caveats" sections are intentionally dropped so the index stays a
+      list of one-paragraph descriptions.
     - prompt: the text of a blockquote immediately under a `## Prompt` heading,
       if present — used to show the original prompt prominently on the index.
     """
@@ -77,8 +80,10 @@ def _parse_docs(path: Path) -> tuple[str | None, str, str | None]:
         prompt_lines = [re.sub(r"^>\s?", "", ln) for ln in block.splitlines()]
         prompt = "\n".join(prompt_lines).strip() or None
 
+    # Lead = body up to (but not including) the first H2.
+    lead = re.split(r"(?m)^##\s", body, maxsplit=1)[0].strip()
     summary_html = markdown.markdown(
-        body,
+        lead,
         extensions=["fenced_code", "tables"],
         output_format="html5",
     )
@@ -148,29 +153,55 @@ PAGE_TEMPLATE = """<!doctype html>
     margin: 0 0 6px;
     letter-spacing: -0.01em;
   }}
-  header p {{ color: var(--muted); margin: 0 0 32px; }}
+  header p {{ color: var(--muted); margin: 0 0 24px; }}
   .app {{
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: 14px;
-    padding: 20px 22px;
-    margin: 18px 0;
+    border-radius: 12px;
+    margin: 8px 0;
   }}
-  .app h2 {{ margin: 0 0 4px; font-size: 20px; }}
-  .app h2 a {{
+  .app > summary {{
+    list-style: none;
+    cursor: pointer;
+    padding: 12px 18px;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    -webkit-tap-highlight-color: transparent;
+  }}
+  .app > summary::-webkit-details-marker {{ display: none; }}
+  .app > summary::before {{
+    content: "";
+    display: inline-block;
+    width: 0;
+    height: 0;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    border-left: 5px solid var(--muted);
+    transition: transform 120ms ease;
+    flex: 0 0 auto;
+    transform: translateY(-1px);
+  }}
+  .app[open] > summary::before {{ transform: rotate(90deg) translateX(-1px); }}
+  .app > summary .title {{
     color: var(--accent);
     text-decoration: none;
+    font-size: 17px;
+    font-weight: 600;
   }}
-  .app h2 a:hover {{ text-decoration: underline; }}
-  .app .slug {{
+  .app > summary .title:hover {{ text-decoration: underline; }}
+  .app > summary .slug {{
     color: var(--muted);
-    font-size: 13px;
+    font-size: 12px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    margin-left: auto;
   }}
-  .app .summary {{ margin-top: 10px; color: var(--ink); }}
+  .app .body {{ padding: 0 18px 16px 36px; }}
+  .app .summary {{ color: var(--ink); }}
   .app .summary p:first-child {{ margin-top: 0; }}
+  .app .summary p:last-child {{ margin-bottom: 0; }}
   .app .prompt {{
-    margin: 12px 0 0;
+    margin: 0 0 12px;
     padding: 10px 14px;
     border-left: 3px solid var(--accent);
     background: rgba(255, 216, 77, 0.06);
@@ -224,12 +255,16 @@ PAGE_TEMPLATE = """<!doctype html>
 </html>
 """
 
-CARD_TEMPLATE = """    <article class="app">
-      <h2><a href="{href}">{title}</a></h2>
-      <div class="slug">{slug}.html</div>
-      {prompt_block}
-      <div class="summary">{summary}</div>
-    </article>"""
+CARD_TEMPLATE = """    <details class="app">
+      <summary>
+        <a class="title" href="{href}">{title}</a>
+        <span class="slug">{slug}.html</span>
+      </summary>
+      <div class="body">
+        {prompt_block}
+        <div class="summary">{summary}</div>
+      </div>
+    </details>"""
 
 
 def render(apps: list[App]) -> str:
