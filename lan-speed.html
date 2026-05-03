@@ -1,0 +1,790 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0f1115" />
+<title>LAN Speed</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1f242d;
+    --ink: #e9edf5;
+    --muted: #8993a7;
+    --accent: #4ade80;
+    --accent-2: #ffd84d;
+    --bad: #f87171;
+    --line: rgba(255, 255, 255, 0.08);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100svh;
+    line-height: 1.5;
+  }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: env(safe-area-inset-top) 18px env(safe-area-inset-bottom);
+  }
+  header {
+    padding: 28px 0 18px;
+  }
+  h1 {
+    margin: 0 0 4px;
+    font-size: 24px;
+    letter-spacing: -0.01em;
+  }
+  header p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px 18px 16px;
+    margin: 16px 0;
+  }
+  .panel h2 {
+    margin: 0 0 10px;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .panel p { margin: 6px 0; font-size: 14px; }
+
+  .roles {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  button {
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: var(--panel-2);
+    color: var(--ink);
+    font: inherit;
+    font-size: 14px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:hover { background: #262c37; }
+  button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  button.primary {
+    background: var(--accent);
+    color: #0f1115;
+    border-color: transparent;
+    font-weight: 600;
+  }
+  button.primary:hover { background: #5dffa0; }
+  button.ghost {
+    background: transparent;
+  }
+
+  textarea {
+    width: 100%;
+    min-height: 84px;
+    background: #0b0d13;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    resize: vertical;
+    word-break: break-all;
+  }
+  .row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+  .step {
+    counter-increment: step;
+    margin: 14px 0 4px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .step::before {
+    content: "Step " counter(step) " · ";
+    color: var(--accent-2);
+    font-weight: 600;
+  }
+  section.flow { counter-reset: step; }
+
+  .status {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    font-size: 14px;
+  }
+  .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex: 0 0 auto;
+  }
+  .dot.ok { background: var(--accent); box-shadow: 0 0 8px rgba(74, 222, 128, 0.5); }
+  .dot.warn { background: var(--accent-2); }
+  .dot.bad { background: var(--bad); }
+
+  .results {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .result {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px;
+    text-align: center;
+  }
+  .result .label {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .result .value {
+    font-size: 22px;
+    font-weight: 600;
+    margin: 4px 0 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .result .unit {
+    font-size: 12px;
+    color: var(--muted);
+    margin-left: 2px;
+    font-weight: 400;
+  }
+  .result.live .value { color: var(--accent-2); }
+
+  .progress {
+    margin-top: 14px;
+    height: 6px;
+    width: 100%;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .progress > span {
+    display: block;
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    transition: width 120ms linear;
+  }
+  .log {
+    margin-top: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    color: var(--muted);
+    max-height: 120px;
+    overflow-y: auto;
+    background: #0b0d13;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 10px;
+    white-space: pre-wrap;
+  }
+  details {
+    margin-top: 14px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  details summary {
+    cursor: pointer;
+    padding: 4px 0;
+    color: var(--ink);
+  }
+  [hidden] { display: none !important; }
+
+  @media (max-width: 480px) {
+    .results { grid-template-columns: 1fr; }
+    .result .value { font-size: 26px; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <h1>LAN Speed</h1>
+  <p>Peer-to-peer throughput test over WebRTC. No internet, no server — copy a short code between two devices on the same network.</p>
+</header>
+
+<div class="panel" id="role-panel">
+  <h2>Pick a role</h2>
+  <p>Open this page on two devices on the same Wi-Fi / LAN. One hosts, the other joins.</p>
+  <div class="roles">
+    <button id="btn-host" class="primary">I'll host</button>
+    <button id="btn-join">I'll join</button>
+  </div>
+</div>
+
+<section id="host-flow" class="panel flow" hidden>
+  <h2>Host</h2>
+  <div class="step">Send this code to the other device.</div>
+  <textarea id="host-offer" readonly placeholder="Generating…"></textarea>
+  <div class="row">
+    <button id="copy-offer">Copy</button>
+    <button id="reset-host" class="ghost">Cancel</button>
+  </div>
+  <div class="step">Paste the reply code from the other device.</div>
+  <textarea id="host-answer-input" placeholder="paste reply code here"></textarea>
+  <div class="row">
+    <button id="connect-host" class="primary">Connect</button>
+  </div>
+</section>
+
+<section id="join-flow" class="panel flow" hidden>
+  <h2>Join</h2>
+  <div class="step">Paste the host's code.</div>
+  <textarea id="join-offer-input" placeholder="paste host code here"></textarea>
+  <div class="row">
+    <button id="generate-answer" class="primary">Generate reply</button>
+    <button id="reset-join" class="ghost">Cancel</button>
+  </div>
+  <div class="step">Send this reply back to the host.</div>
+  <textarea id="join-answer" readonly placeholder="—"></textarea>
+  <div class="row">
+    <button id="copy-answer">Copy</button>
+  </div>
+</section>
+
+<div class="panel" id="status-panel" hidden>
+  <h2>Connection</h2>
+  <div class="status">
+    <span id="status-dot" class="dot"></span>
+    <span id="status-text">Idle</span>
+  </div>
+  <div class="log" id="log"></div>
+</div>
+
+<div class="panel" id="test-panel" hidden>
+  <h2>Speed test</h2>
+  <p>Measures round-trip time, then a 6 s send burst in each direction.</p>
+  <div class="row">
+    <button id="run-test" class="primary">Run test</button>
+    <button id="hangup" class="ghost">Disconnect</button>
+  </div>
+  <div class="progress"><span id="progress-bar"></span></div>
+  <div class="results">
+    <div class="result" id="r-ping-card">
+      <div class="label">Ping</div>
+      <div class="value"><span id="r-ping">—</span><span class="unit"> ms</span></div>
+    </div>
+    <div class="result" id="r-down-card">
+      <div class="label">Download</div>
+      <div class="value"><span id="r-down">—</span><span class="unit" id="r-down-unit"> Mbps</span></div>
+    </div>
+    <div class="result" id="r-up-card">
+      <div class="label">Upload</div>
+      <div class="value"><span id="r-up">—</span><span class="unit" id="r-up-unit"> Mbps</span></div>
+    </div>
+  </div>
+</div>
+
+<details>
+  <summary>How it works</summary>
+  <p>Both devices create an <code>RTCPeerConnection</code> with no ICE servers, so only host (LAN) candidates are gathered. The two pages exchange a base64-encoded SDP offer and answer manually (e.g. by typing, AirDrop, KDE Connect, or a chat app). Once connected, a single ordered <code>RTCDataChannel</code> carries small JSON control messages and 16 KB binary chunks for the throughput test. Backpressure is handled via <code>bufferedAmountLowThreshold</code>. Nothing leaves your LAN.</p>
+  <p>If a device's browser uses mDNS-obfuscated host candidates (most do), both devices need to be able to resolve <code>.local</code> hostnames on the same subnet — usually fine on home / office Wi-Fi, but corporate guest networks with client isolation will block the connection.</p>
+</details>
+
+</main>
+
+<script>
+"use strict";
+
+// ---- DOM helpers --------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+const show = (el) => el.removeAttribute("hidden");
+const hide = (el) => el.setAttribute("hidden", "");
+
+const els = {
+  rolePanel: $("role-panel"),
+  hostFlow: $("host-flow"),
+  joinFlow: $("join-flow"),
+  statusPanel: $("status-panel"),
+  testPanel: $("test-panel"),
+  hostOffer: $("host-offer"),
+  hostAnswerInput: $("host-answer-input"),
+  joinOfferInput: $("join-offer-input"),
+  joinAnswer: $("join-answer"),
+  statusDot: $("status-dot"),
+  statusText: $("status-text"),
+  log: $("log"),
+  rPing: $("r-ping"),
+  rDown: $("r-down"),
+  rDownUnit: $("r-down-unit"),
+  rUp: $("r-up"),
+  rUpUnit: $("r-up-unit"),
+  rDownCard: $("r-down-card"),
+  rUpCard: $("r-up-card"),
+  rPingCard: $("r-ping-card"),
+  progress: $("progress-bar"),
+  runTest: $("run-test"),
+};
+
+function logLine(msg) {
+  const t = new Date().toLocaleTimeString();
+  els.log.textContent += `[${t}] ${msg}\n`;
+  els.log.scrollTop = els.log.scrollHeight;
+}
+
+function setStatus(text, kind = "") {
+  els.statusText.textContent = text;
+  els.statusDot.className = "dot" + (kind ? " " + kind : "");
+}
+
+// ---- SDP encode/decode --------------------------------------------------
+// Compact base64 wrapper so the user only copies a single chunk of text.
+function encodeDesc(d) {
+  const json = JSON.stringify({ t: d.type, s: d.sdp });
+  // btoa needs latin1; SDPs are ASCII so this is safe.
+  return btoa(json);
+}
+function decodeDesc(code) {
+  const json = atob(code.trim());
+  const o = JSON.parse(json);
+  return new RTCSessionDescription({ type: o.t, sdp: o.s });
+}
+
+// ---- Peer connection plumbing ------------------------------------------
+let pc = null;
+let dc = null;
+
+function newPeerConnection() {
+  // Empty iceServers => only host (LAN) candidates. Fully offline.
+  const conn = new RTCPeerConnection({ iceServers: [] });
+  conn.oniceconnectionstatechange = () => {
+    const s = conn.iceConnectionState;
+    logLine(`ICE: ${s}`);
+    if (s === "connected" || s === "completed") setStatus("Connected", "ok");
+    else if (s === "checking") setStatus("Connecting…", "warn");
+    else if (s === "disconnected") setStatus("Disconnected", "warn");
+    else if (s === "failed") setStatus("Connection failed", "bad");
+    else if (s === "closed") setStatus("Closed");
+  };
+  return conn;
+}
+
+function waitForIceComplete(conn) {
+  return new Promise((resolve) => {
+    if (conn.iceGatheringState === "complete") return resolve();
+    const onChange = () => {
+      if (conn.iceGatheringState === "complete") {
+        conn.removeEventListener("icegatheringstatechange", onChange);
+        resolve();
+      }
+    };
+    conn.addEventListener("icegatheringstatechange", onChange);
+    // Hard cap so we don't hang forever on a buggy stack.
+    setTimeout(() => resolve(), 4000);
+  });
+}
+
+function attachChannel(channel) {
+  dc = channel;
+  dc.binaryType = "arraybuffer";
+  dc.bufferedAmountLowThreshold = 256 * 1024;
+  dc.onopen = () => {
+    logLine("Data channel open");
+    setStatus("Connected", "ok");
+    hide(els.hostFlow);
+    hide(els.joinFlow);
+    show(els.testPanel);
+  };
+  dc.onclose = () => {
+    logLine("Data channel closed");
+    setStatus("Disconnected", "warn");
+    hide(els.testPanel);
+  };
+  dc.onerror = (e) => logLine("Channel error: " + (e.error?.message || e));
+  dc.onmessage = onChannelMessage;
+}
+
+// ---- Host flow ----------------------------------------------------------
+async function startHost() {
+  hide(els.rolePanel);
+  show(els.hostFlow);
+  show(els.statusPanel);
+  setStatus("Generating offer…", "warn");
+
+  pc = newPeerConnection();
+  attachChannel(pc.createDataChannel("speed", { ordered: true }));
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  await waitForIceComplete(pc);
+
+  els.hostOffer.value = encodeDesc(pc.localDescription);
+  setStatus("Waiting for reply…", "warn");
+}
+
+async function hostAcceptAnswer() {
+  const code = els.hostAnswerInput.value.trim();
+  if (!code) return;
+  try {
+    await pc.setRemoteDescription(decodeDesc(code));
+    setStatus("Connecting…", "warn");
+  } catch (e) {
+    logLine("Bad reply code: " + e.message);
+    setStatus("Bad reply code", "bad");
+  }
+}
+
+// ---- Join flow ----------------------------------------------------------
+async function startJoin() {
+  hide(els.rolePanel);
+  show(els.joinFlow);
+  show(els.statusPanel);
+  setStatus("Waiting for host code…");
+
+  pc = newPeerConnection();
+  pc.ondatachannel = (e) => attachChannel(e.channel);
+}
+
+async function joinGenerateAnswer() {
+  const code = els.joinOfferInput.value.trim();
+  if (!code) return;
+  try {
+    await pc.setRemoteDescription(decodeDesc(code));
+  } catch (e) {
+    logLine("Bad host code: " + e.message);
+    setStatus("Bad host code", "bad");
+    return;
+  }
+  setStatus("Generating reply…", "warn");
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  await waitForIceComplete(pc);
+  els.joinAnswer.value = encodeDesc(pc.localDescription);
+  setStatus("Send the reply back to the host…", "warn");
+}
+
+// ---- Speed test protocol ------------------------------------------------
+//
+// Control messages are JSON strings. Binary chunks are ArrayBuffer.
+// Commands (sent from initiator → peer):
+//   {c:"ping", id}          → peer replies {c:"pong", id}
+//   {c:"prep_recv", ms}     → peer arms its receiver, replies {c:"ready"}
+//   {c:"end_send"}          → after a send burst; peer replies {c:"result", bytes, ms}
+//   {c:"start_send", ms}    → peer should send a burst of ms milliseconds, then {c:"end_send"}
+//
+// Only one test runs at a time, initiated from whichever side clicked Run.
+
+const CHUNK = 16 * 1024;          // 16KB - safe across browsers
+const HIGH_WATER = 8 * 1024 * 1024; // pause sending above 8MB buffered
+const TEST_MS = 6000;
+const PING_ROUNDS = 12;
+
+const recv = { armed: false, t0: 0, bytes: 0, lastUpdate: 0 };
+const pending = {
+  pong: new Map(),  // id → resolver
+  ready: null,
+  result: null,
+  endSend: null,    // resolved when peer signals end_send to us
+};
+
+function send(obj) {
+  dc.send(JSON.stringify(obj));
+}
+
+function onChannelMessage(ev) {
+  if (typeof ev.data === "string") {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+    handleControl(msg);
+    return;
+  }
+  // Binary chunk during an active test.
+  if (recv.armed) {
+    if (recv.t0 === 0) recv.t0 = performance.now();
+    recv.bytes += ev.data.byteLength;
+    const now = performance.now();
+    if (now - recv.lastUpdate > 200) {
+      recv.lastUpdate = now;
+      const elapsed = (now - recv.t0) / 1000;
+      if (elapsed > 0) liveRate(recv.bytes / elapsed);
+    }
+  }
+}
+
+function handleControl(msg) {
+  switch (msg.c) {
+    case "ping":
+      send({ c: "pong", id: msg.id });
+      break;
+    case "pong": {
+      const r = pending.pong.get(msg.id);
+      if (r) { pending.pong.delete(msg.id); r(); }
+      break;
+    }
+    case "prep_recv":
+      recv.armed = true;
+      recv.t0 = 0;
+      recv.bytes = 0;
+      recv.lastUpdate = 0;
+      send({ c: "ready" });
+      break;
+    case "ready":
+      pending.ready?.();
+      pending.ready = null;
+      break;
+    case "end_send": {
+      // Sender (peer) has finished. Compute & report bytes we received.
+      recv.armed = false;
+      const ms = recv.t0 ? performance.now() - recv.t0 : 0;
+      send({ c: "result", bytes: recv.bytes, ms });
+      pending.endSend?.({ bytes: recv.bytes, ms });
+      pending.endSend = null;
+      break;
+    }
+    case "result":
+      pending.result?.({ bytes: msg.bytes, ms: msg.ms });
+      pending.result = null;
+      break;
+    case "start_send":
+      // Peer wants us to send. Run a burst, then end_send.
+      runSendBurst(msg.ms || TEST_MS).then(() => send({ c: "end_send" }));
+      break;
+  }
+}
+
+function liveRate(bps) {
+  // bytes/sec → live readout in whichever direction card is currently "live".
+  const mbps = (bps * 8) / 1e6;
+  const target = els.rUpCard.classList.contains("live") ? els.rUp : els.rDown;
+  target.textContent = mbps.toFixed(1);
+}
+
+async function measurePing() {
+  const samples = [];
+  for (let i = 0; i < PING_ROUNDS; i++) {
+    const id = "p" + i + "-" + Math.random().toString(36).slice(2, 6);
+    const t0 = performance.now();
+    await new Promise((res) => {
+      pending.pong.set(id, res);
+      send({ c: "ping", id });
+    });
+    samples.push(performance.now() - t0);
+    await sleep(40);
+  }
+  // Trim worst outlier, average the rest.
+  samples.sort((a, b) => a - b);
+  const trimmed = samples.slice(0, -1);
+  const avg = trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+  return { avg, min: samples[0], samples };
+}
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+async function runSendBurst(durationMs) {
+  // Pre-allocate a single buffer; reusing is fine because the data channel
+  // serialises before returning.
+  const buf = new Uint8Array(CHUNK);
+  // Light random fill so a smart compressor in some hypothetical layer
+  // can't shortcut it. (DataChannels don't compress, but defensive.)
+  crypto.getRandomValues(buf);
+
+  const startedAt = performance.now();
+  const endsAt = startedAt + durationMs;
+
+  while (performance.now() < endsAt) {
+    if (dc.readyState !== "open") break;
+    if (dc.bufferedAmount > HIGH_WATER) {
+      await waitForBufferLow();
+      continue;
+    }
+    try {
+      dc.send(buf.buffer);
+    } catch (e) {
+      // Some browsers throw when buffer is full; back off and retry.
+      await sleep(20);
+    }
+  }
+
+  // Drain remaining buffer so the receiver actually sees all the bytes
+  // before we report end_send.
+  while (dc.readyState === "open" && dc.bufferedAmount > 0) {
+    await sleep(40);
+  }
+}
+
+function waitForBufferLow() {
+  return new Promise((resolve) => {
+    const onLow = () => {
+      dc.removeEventListener("bufferedamountlow", onLow);
+      resolve();
+    };
+    dc.addEventListener("bufferedamountlow", onLow);
+  });
+}
+
+function formatRate(bytesPerSec) {
+  const mbps = (bytesPerSec * 8) / 1e6;
+  if (mbps >= 1000) return { value: (mbps / 1000).toFixed(2), unit: " Gbps" };
+  if (mbps >= 1) return { value: mbps.toFixed(1), unit: " Mbps" };
+  const kbps = (bytesPerSec * 8) / 1e3;
+  return { value: kbps.toFixed(0), unit: " kbps" };
+}
+
+async function runTest() {
+  if (!dc || dc.readyState !== "open") return;
+  els.runTest.disabled = true;
+  els.rPing.textContent = "…";
+  els.rDown.textContent = "…";
+  els.rUp.textContent = "…";
+  els.rDownCard.classList.remove("live");
+  els.rUpCard.classList.remove("live");
+  els.progress.style.width = "0%";
+
+  try {
+    // --- Ping ---
+    logLine("Measuring ping…");
+    advanceProgress(0, 15);
+    const ping = await measurePing();
+    els.rPing.textContent = ping.avg.toFixed(1);
+    logLine(`Ping avg ${ping.avg.toFixed(1)} ms (min ${ping.min.toFixed(1)} ms)`);
+
+    // --- Download (we send → peer; peer reports bytes received) ---
+    advanceProgress(15, 20);
+    logLine("Download burst (we → peer)…");
+    await new Promise((res) => { pending.ready = res; send({ c: "prep_recv", ms: TEST_MS }); });
+    advanceProgress(20, 25);
+    const dlPromise = new Promise((res) => { pending.result = res; });
+    await runSendBurst(TEST_MS);
+    advanceProgress(25, 55);
+    send({ c: "end_send" });
+    const dl = await dlPromise;
+    const dlSec = dl.ms / 1000;
+    const dlRate = dlSec > 0 ? dl.bytes / dlSec : 0;
+    const dlFmt = formatRate(dlRate);
+    els.rDown.textContent = dlFmt.value;
+    els.rDownUnit.textContent = dlFmt.unit;
+    els.rDownCard.classList.remove("live");
+    logLine(`Download: ${dlFmt.value}${dlFmt.unit} (${(dl.bytes / 1e6).toFixed(1)} MB in ${dlSec.toFixed(2)} s)`);
+
+    // --- Upload (peer sends → we measure) ---
+    advanceProgress(55, 60);
+    logLine("Upload burst (peer → we)…");
+    recv.armed = true;
+    recv.t0 = 0;
+    recv.bytes = 0;
+    recv.lastUpdate = 0;
+    // Show live in the upload card instead of download.
+    els.rDownCard.classList.remove("live");
+    els.rUpCard.classList.add("live");
+    const upPromise = new Promise((res) => { pending.endSend = res; });
+    send({ c: "start_send", ms: TEST_MS });
+    advanceProgress(60, 95, TEST_MS);
+    const up = await upPromise;
+    const upSec = up.ms / 1000;
+    const upRate = upSec > 0 ? up.bytes / upSec : 0;
+    const upFmt = formatRate(upRate);
+    els.rUp.textContent = upFmt.value;
+    els.rUpUnit.textContent = upFmt.unit;
+    els.rUpCard.classList.remove("live");
+    logLine(`Upload: ${upFmt.value}${upFmt.unit} (${(up.bytes / 1e6).toFixed(1)} MB in ${upSec.toFixed(2)} s)`);
+
+    advanceProgress(95, 100);
+    setTimeout(() => { els.progress.style.width = "0%"; }, 600);
+  } catch (e) {
+    logLine("Test failed: " + (e.message || e));
+  } finally {
+    els.runTest.disabled = false;
+  }
+}
+
+let progressTimer = null;
+function advanceProgress(from, to, durationMs = 200) {
+  if (progressTimer) cancelAnimationFrame(progressTimer);
+  const t0 = performance.now();
+  const step = () => {
+    const p = Math.min(1, (performance.now() - t0) / durationMs);
+    const pct = from + (to - from) * p;
+    els.progress.style.width = pct + "%";
+    if (p < 1) progressTimer = requestAnimationFrame(step);
+  };
+  step();
+}
+
+// ---- Wire UI ------------------------------------------------------------
+$("btn-host").addEventListener("click", startHost);
+$("btn-join").addEventListener("click", startJoin);
+
+$("connect-host").addEventListener("click", hostAcceptAnswer);
+$("generate-answer").addEventListener("click", joinGenerateAnswer);
+
+$("copy-offer").addEventListener("click", () => copyText(els.hostOffer.value, $("copy-offer")));
+$("copy-answer").addEventListener("click", () => copyText(els.joinAnswer.value, $("copy-answer")));
+
+$("reset-host").addEventListener("click", resetAll);
+$("reset-join").addEventListener("click", resetAll);
+$("hangup").addEventListener("click", resetAll);
+
+$("run-test").addEventListener("click", runTest);
+
+async function copyText(text, btn) {
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    const orig = btn.textContent;
+    btn.textContent = "Copied";
+    setTimeout(() => { btn.textContent = orig; }, 1200);
+  } catch {
+    // Fallback: select textarea
+    const ta = btn.previousElementSibling?.tagName === "TEXTAREA"
+      ? btn.previousElementSibling : null;
+    if (ta) { ta.select(); document.execCommand?.("copy"); }
+  }
+}
+
+function resetAll() {
+  try { dc?.close(); } catch {}
+  try { pc?.close(); } catch {}
+  dc = null;
+  pc = null;
+  els.hostOffer.value = "";
+  els.hostAnswerInput.value = "";
+  els.joinOfferInput.value = "";
+  els.joinAnswer.value = "";
+  els.rPing.textContent = "—";
+  els.rDown.textContent = "—";
+  els.rUp.textContent = "—";
+  els.progress.style.width = "0%";
+  hide(els.hostFlow);
+  hide(els.joinFlow);
+  hide(els.testPanel);
+  hide(els.statusPanel);
+  show(els.rolePanel);
+  setStatus("Idle");
+}
+
+setStatus("Idle");
+
+</script>
+</body>
+</html>
