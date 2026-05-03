@@ -227,6 +227,66 @@ possible with a sheets url to prefill that'd be super</p>
 </ul></div>
     </article>
     <article class="app">
+      <h2><a href="lan-speed">LAN Speed</a></h2>
+      <div class="slug">lan-speed.html</div>
+      <blockquote class="prompt">lan speed connection tool that works offline.</blockquote>
+      <div class="summary"><p>Peer-to-peer LAN throughput tester. Open the page on two devices on the same
+Wi-Fi / network, copy a short code from one to the other, and measure ping,
+download and upload speed between them — over a direct WebRTC data channel,
+with no internet, signalling server, STUN or TURN.</p>
+<h2>Prompt</h2>
+<blockquote>
+<p>lan speed connection tool that works offline.</p>
+</blockquote>
+<h2>How it works</h2>
+<ul>
+<li>Both pages create an <code>RTCPeerConnection</code> with <code>iceServers: []</code>, so only
+  <em>host</em> (LAN) ICE candidates are gathered. There's no public-internet
+  fall-back — if the two devices can't reach each other on the LAN, the
+  connection won't form.</li>
+<li>The SDP offer / answer is base64-encoded into a single line of text and
+  exchanged manually (textarea + Copy button). The user pastes it across
+  via whatever sneakernet they like — AirDrop, KDE Connect, a chat app,
+  email, or just by typing it in.</li>
+<li>Once connected, an ordered <code>RTCDataChannel</code> carries:</li>
+<li>JSON control messages (<code>ping</code>/<code>pong</code>, <code>prep_recv</code>, <code>start_send</code>,
+    <code>end_send</code>, <code>result</code>),</li>
+<li>and 16 KB binary chunks during the throughput burst.</li>
+<li>The test runs three phases:</li>
+<li><strong>Ping</strong> — 12 round trips, worst sample dropped, average reported.</li>
+<li><strong>Download</strong> — initiator sends a 6 s burst; the peer counts received
+     bytes and replies with the result.</li>
+<li><strong>Upload</strong> — initiator asks the peer to send a 6 s burst; initiator
+     counts received bytes locally.</li>
+</ul>
+<h2>Notes</h2>
+<ul>
+<li>16 KB chunks are the practical max-message size that works across all
+  major browser data-channel implementations.</li>
+<li>Backpressure is handled with <code>bufferedAmountLowThreshold</code> +
+  <code>bufferedamountlow</code>, with an 8 MB high-water mark, so a fast sender
+  doesn't out-run a slow receiver.</li>
+<li>After a send burst, the sender drains <code>bufferedAmount</code> to zero before
+  signalling <code>end_send</code>, otherwise the receiver would underreport.</li>
+<li>ICE gathering has a 4 s hard cap so the offer / answer codes appear
+  quickly even on stacks that never fire <code>complete</code>.</li>
+<li>Modern browsers obfuscate host candidates as mDNS <code>.local</code> names — both
+  devices need to resolve mDNS on the same subnet. Home / office Wi-Fi is
+  fine; corporate guest networks with client isolation will block the
+  connection.</li>
+<li>No build step, no dependencies, single HTML file.</li>
+</ul>
+<h2>Caveats</h2>
+<ul>
+<li>Real-world throughput is gated by the slower of the two devices' radios,
+  the AP's backplane, and any background traffic on the LAN — this tool
+  measures the <em>path</em> between two browsers, not the raw link speed of
+  either device.</li>
+<li>Wi-Fi rates are highly directional and bursty. Expect noisy numbers if
+  one device is at the edge of coverage.</li>
+</ul></div>
+    </article>
+    <article class="app">
       <h2><a href="protractor">Protractor</a></h2>
       <div class="slug">protractor.html</div>
       <blockquote class="prompt">webcam with protractor overlay</blockquote>
