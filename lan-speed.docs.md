@@ -29,6 +29,12 @@ with no internet, signalling server, STUN or TURN.
      bytes and replies with the result.
   3. **Upload** — initiator asks the peer to send a 6 s burst; initiator
      counts received bytes locally.
+- A live **link health** panel polls `pc.getStats()` once a second and
+  surfaces the active candidate-pair's `currentRoundTripTime`, a rolling
+  jitter (stddev of the last 30 RTT samples), and TX / RX throughput from
+  the transport report. Browsers can't read Wi-Fi RSSI from a page, but
+  these stats are decent proxies for link quality and update continuously
+  — not just during a test burst.
 
 ## Notes
 

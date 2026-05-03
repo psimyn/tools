@@ -180,6 +180,33 @@
   }
   .result.live .value { color: var(--accent-2); }
 
+  .health {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+  }
+  .health-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .health-head .dot { width: 8px; height: 8px; }
+  .health-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+  .health-grid .result { padding: 10px 8px; }
+  .health-grid .result .value { font-size: 17px; }
+  @media (max-width: 480px) {
+    .health-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+
   .progress {
     margin-top: 14px;
     height: 6px;
@@ -304,6 +331,18 @@
       <div class="value"><span id="r-up">—</span><span class="unit" id="r-up-unit"> Mbps</span></div>
     </div>
   </div>
+  <div class="health">
+    <div class="health-head">
+      <span id="lh-dot" class="dot"></span>
+      <span>Live link health · <span id="lh-quality">waiting</span></span>
+    </div>
+    <div class="health-grid">
+      <div class="result"><div class="label">RTT</div><div class="value"><span id="lh-rtt">—</span><span class="unit"> ms</span></div></div>
+      <div class="result"><div class="label">Jitter</div><div class="value"><span id="lh-jitter">—</span><span class="unit"> ms</span></div></div>
+      <div class="result"><div class="label">TX</div><div class="value"><span id="lh-tx">—</span><span class="unit"> Mbps</span></div></div>
+      <div class="result"><div class="label">RX</div><div class="value"><span id="lh-rx">—</span><span class="unit"> Mbps</span></div></div>
+    </div>
+  </div>
 </div>
 
 <details>
@@ -345,6 +384,12 @@ const els = {
   rPingCard: $("r-ping-card"),
   progress: $("progress-bar"),
   runTest: $("run-test"),
+  lhDot: $("lh-dot"),
+  lhQuality: $("lh-quality"),
+  lhRtt: $("lh-rtt"),
+  lhJitter: $("lh-jitter"),
+  lhTx: $("lh-tx"),
+  lhRx: $("lh-rx"),
 };
 
 function logLine(msg) {
@@ -415,10 +460,12 @@ function attachChannel(channel) {
     hide(els.hostFlow);
     hide(els.joinFlow);
     show(els.testPanel);
+    startHealthPolling();
   };
   dc.onclose = () => {
     logLine("Data channel closed");
     setStatus("Disconnected", "warn");
+    stopHealthPolling();
     hide(els.testPanel);
   };
   dc.onerror = (e) => logLine("Channel error: " + (e.error?.message || e));
@@ -651,6 +698,106 @@ function formatRate(bytesPerSec) {
   return { value: kbps.toFixed(0), unit: " kbps" };
 }
 
+// ---- Live link health (RTCStats poller) --------------------------------
+// Polls pc.getStats() once a second while connected. Pulls RTT and byte
+// counters off the active candidate-pair / transport reports. Jitter is
+// computed locally as the rolling stddev of the last 30 RTT samples.
+
+let healthTimer = null;
+let lastTransport = null;     // { t, bytesSent, bytesReceived }
+const rttWindow = [];         // recent RTT samples in ms
+const RTT_WINDOW_SIZE = 30;
+
+function startHealthPolling() {
+  stopHealthPolling();
+  resetHealthUI();
+  healthTimer = setInterval(pollHealth, 1000);
+  pollHealth();
+}
+
+function stopHealthPolling() {
+  if (healthTimer) { clearInterval(healthTimer); healthTimer = null; }
+  lastTransport = null;
+  rttWindow.length = 0;
+}
+
+function resetHealthUI() {
+  els.lhRtt.textContent = "—";
+  els.lhJitter.textContent = "—";
+  els.lhTx.textContent = "—";
+  els.lhRx.textContent = "—";
+  els.lhQuality.textContent = "waiting";
+  els.lhDot.className = "dot";
+}
+
+async function pollHealth() {
+  if (!pc || pc.connectionState === "closed") return;
+  let stats;
+  try { stats = await pc.getStats(); } catch { return; }
+
+  let activePair = null;
+  let transport = null;
+  stats.forEach((r) => {
+    if (r.type === "candidate-pair") {
+      // Prefer the nominated/succeeded pair; fall back to "selected".
+      if (r.nominated && r.state === "succeeded") activePair = r;
+      else if (!activePair && r.selected) activePair = r;
+    } else if (r.type === "transport") {
+      transport = r;
+    }
+  });
+
+  if (activePair && typeof activePair.currentRoundTripTime === "number") {
+    const rttMs = activePair.currentRoundTripTime * 1000;
+    rttWindow.push(rttMs);
+    if (rttWindow.length > RTT_WINDOW_SIZE) rttWindow.shift();
+    els.lhRtt.textContent = rttMs.toFixed(rttMs < 10 ? 2 : 1);
+    els.lhJitter.textContent = stddev(rttWindow).toFixed(2);
+  }
+
+  const now = performance.now();
+  if (transport) {
+    const bs = transport.bytesSent ?? 0;
+    const br = transport.bytesReceived ?? 0;
+    if (lastTransport) {
+      const dt = (now - lastTransport.t) / 1000;
+      if (dt > 0) {
+        const tx = ((bs - lastTransport.bytesSent) * 8) / 1e6 / dt;
+        const rx = ((br - lastTransport.bytesReceived) * 8) / 1e6 / dt;
+        els.lhTx.textContent = tx >= 1 ? tx.toFixed(1) : tx.toFixed(2);
+        els.lhRx.textContent = rx >= 1 ? rx.toFixed(1) : rx.toFixed(2);
+      }
+    }
+    lastTransport = { t: now, bytesSent: bs, bytesReceived: br };
+  }
+
+  updateQuality();
+}
+
+function updateQuality() {
+  if (rttWindow.length < 3) {
+    els.lhQuality.textContent = "measuring";
+    els.lhDot.className = "dot";
+    return;
+  }
+  const rtt = rttWindow[rttWindow.length - 1];
+  const jit = stddev(rttWindow);
+  let label, kind;
+  if (rtt < 5 && jit < 1) { label = "excellent"; kind = "ok"; }
+  else if (rtt < 20 && jit < 5) { label = "good"; kind = "ok"; }
+  else if (rtt < 60 && jit < 20) { label = "fair"; kind = "warn"; }
+  else { label = "poor"; kind = "bad"; }
+  els.lhQuality.textContent = label;
+  els.lhDot.className = "dot " + kind;
+}
+
+function stddev(arr) {
+  if (arr.length < 2) return 0;
+  const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+  const v = arr.reduce((a, b) => a + (b - mean) * (b - mean), 0) / arr.length;
+  return Math.sqrt(v);
+}
+
 async function runTest() {
   if (!dc || dc.readyState !== "open") return;
   els.runTest.disabled = true;
@@ -763,6 +910,8 @@ async function copyText(text, btn) {
 }
 
 function resetAll() {
+  stopHealthPolling();
+  resetHealthUI();
   try { dc?.close(); } catch {}
   try { pc?.close(); } catch {}
   dc = null;
