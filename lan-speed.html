@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0f1115" />
 <title>LAN Speed</title>
+<script src="public/qrcode.js"></script>
 <style>
   :root {
     --bg: #0f1115;
@@ -218,6 +219,63 @@
     padding: 4px 0;
     color: var(--ink);
   }
+  .qr {
+    margin: 10px 0 0;
+    padding: 10px;
+    background: #ffffff;
+    border-radius: 10px;
+    display: inline-block;
+    line-height: 0;
+  }
+  .qr svg {
+    display: block;
+    width: 220px;
+    height: 220px;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+  }
+  .qr-wrap {
+    text-align: center;
+  }
+
+  .scanner {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.92);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+  }
+  .scanner video {
+    width: 100%;
+    max-width: 460px;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    background: #000;
+    border-radius: 14px;
+  }
+  .scanner .reticle {
+    position: absolute;
+    width: min(70vmin, 320px);
+    height: min(70vmin, 320px);
+    border: 2px solid var(--accent);
+    border-radius: 14px;
+    pointer-events: none;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.3);
+  }
+  .scanner-msg {
+    margin-top: 14px;
+    font-size: 14px;
+    color: var(--ink);
+    text-align: center;
+  }
+  .scanner-actions {
+    margin-top: 12px;
+  }
   [hidden] { display: none !important; }
 
   @media (max-width: 480px) {
@@ -245,33 +303,46 @@
 
 <section id="host-flow" class="panel flow" hidden>
   <h2>Host</h2>
-  <div class="step">Send this code to the other device.</div>
+  <div class="step">Send this code to the other device — scan the QR or copy the text.</div>
+  <div class="qr-wrap"><div id="host-offer-qr" class="qr" hidden></div></div>
   <textarea id="host-offer" readonly placeholder="Generating…"></textarea>
   <div class="row">
-    <button id="copy-offer">Copy</button>
+    <button id="copy-offer">Copy text</button>
     <button id="reset-host" class="ghost">Cancel</button>
   </div>
-  <div class="step">Paste the reply code from the other device.</div>
+  <div class="step">Scan or paste the reply code from the other device.</div>
   <textarea id="host-answer-input" placeholder="paste reply code here"></textarea>
   <div class="row">
+    <button id="scan-answer" class="scan-btn" hidden>Scan QR</button>
     <button id="connect-host" class="primary">Connect</button>
   </div>
 </section>
 
 <section id="join-flow" class="panel flow" hidden>
   <h2>Join</h2>
-  <div class="step">Paste the host's code.</div>
+  <div class="step">Scan or paste the host's code.</div>
   <textarea id="join-offer-input" placeholder="paste host code here"></textarea>
   <div class="row">
+    <button id="scan-offer" class="scan-btn" hidden>Scan QR</button>
     <button id="generate-answer" class="primary">Generate reply</button>
     <button id="reset-join" class="ghost">Cancel</button>
   </div>
   <div class="step">Send this reply back to the host.</div>
+  <div class="qr-wrap"><div id="join-answer-qr" class="qr" hidden></div></div>
   <textarea id="join-answer" readonly placeholder="—"></textarea>
   <div class="row">
-    <button id="copy-answer">Copy</button>
+    <button id="copy-answer">Copy text</button>
   </div>
 </section>
+
+<div id="scanner" class="scanner" hidden>
+  <video id="scanner-video" playsinline muted></video>
+  <div class="reticle"></div>
+  <div class="scanner-msg" id="scanner-msg">Point at the QR code on the other device…</div>
+  <div class="scanner-actions">
+    <button id="scanner-cancel">Cancel</button>
+  </div>
+</div>
 
 <div class="panel" id="status-panel" hidden>
   <h2>Connection</h2>
@@ -345,6 +416,14 @@ const els = {
   rPingCard: $("r-ping-card"),
   progress: $("progress-bar"),
   runTest: $("run-test"),
+  hostOfferQR: $("host-offer-qr"),
+  joinAnswerQR: $("join-answer-qr"),
+  scanOffer: $("scan-offer"),
+  scanAnswer: $("scan-answer"),
+  scanner: $("scanner"),
+  scannerVideo: $("scanner-video"),
+  scannerMsg: $("scanner-msg"),
+  scannerCancel: $("scanner-cancel"),
 };
 
 function logLine(msg) {
@@ -359,16 +438,74 @@ function setStatus(text, kind = "") {
 }
 
 // ---- SDP encode/decode --------------------------------------------------
-// Compact base64 wrapper so the user only copies a single chunk of text.
-function encodeDesc(d) {
+// Compact wrapper so the user only copies/scans a single chunk of text.
+// Format: 1-byte flag ("z" deflate-raw, "u" uncompressed) + base64 payload.
+// The deflate variant typically halves SDP size, which keeps the QR code
+// well under Version 20 — comfortably scannable on a phone camera.
+
+async function encodeDesc(d) {
   const json = JSON.stringify({ t: d.type, s: d.sdp });
-  // btoa needs latin1; SDPs are ASCII so this is safe.
-  return btoa(json);
+  if (typeof CompressionStream === "undefined") {
+    return "u" + btoa(json);
+  }
+  const cs = new CompressionStream("deflate-raw");
+  const w = cs.writable.getWriter();
+  w.write(new TextEncoder().encode(json));
+  w.close();
+  const buf = await new Response(cs.readable).arrayBuffer();
+  return "z" + bytesToBase64(new Uint8Array(buf));
 }
-function decodeDesc(code) {
-  const json = atob(code.trim());
+
+async function decodeDesc(code) {
+  const trimmed = code.trim();
+  const flag = trimmed[0];
+  const rest = trimmed.slice(1);
+  let json;
+  if (flag === "z") {
+    const bytes = base64ToBytes(rest);
+    const ds = new DecompressionStream("deflate-raw");
+    const w = ds.writable.getWriter();
+    w.write(bytes);
+    w.close();
+    const buf = await new Response(ds.readable).arrayBuffer();
+    json = new TextDecoder().decode(buf);
+  } else if (flag === "u") {
+    json = atob(rest);
+  } else {
+    // Legacy / unprefixed: assume base64-encoded JSON.
+    json = atob(trimmed);
+  }
   const o = JSON.parse(json);
   return new RTCSessionDescription({ type: o.t, sdp: o.s });
+}
+
+function bytesToBase64(bytes) {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+function base64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+// ---- QR rendering -------------------------------------------------------
+function renderQR(text, container) {
+  if (typeof qrcode !== "function") {
+    container.hidden = true;
+    return;
+  }
+  // typeNumber=0 → auto-fit. "M" = ~15% error correction (good balance for
+  // phone cameras at moderate distance).
+  const qr = qrcode(0, "M");
+  qr.addData(text);
+  qr.make();
+  container.innerHTML = qr.createSvgTag({ scalable: true, margin: 2 });
+  container.hidden = false;
 }
 
 // ---- Peer connection plumbing ------------------------------------------
@@ -439,7 +576,9 @@ async function startHost() {
   await pc.setLocalDescription(offer);
   await waitForIceComplete(pc);
 
-  els.hostOffer.value = encodeDesc(pc.localDescription);
+  const code = await encodeDesc(pc.localDescription);
+  els.hostOffer.value = code;
+  renderQR(code, els.hostOfferQR);
   setStatus("Waiting for reply…", "warn");
 }
 
@@ -447,7 +586,7 @@ async function hostAcceptAnswer() {
   const code = els.hostAnswerInput.value.trim();
   if (!code) return;
   try {
-    await pc.setRemoteDescription(decodeDesc(code));
+    await pc.setRemoteDescription(await decodeDesc(code));
     setStatus("Connecting…", "warn");
   } catch (e) {
     logLine("Bad reply code: " + e.message);
@@ -470,7 +609,7 @@ async function joinGenerateAnswer() {
   const code = els.joinOfferInput.value.trim();
   if (!code) return;
   try {
-    await pc.setRemoteDescription(decodeDesc(code));
+    await pc.setRemoteDescription(await decodeDesc(code));
   } catch (e) {
     logLine("Bad host code: " + e.message);
     setStatus("Bad host code", "bad");
@@ -480,7 +619,9 @@ async function joinGenerateAnswer() {
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
   await waitForIceComplete(pc);
-  els.joinAnswer.value = encodeDesc(pc.localDescription);
+  const replyCode = await encodeDesc(pc.localDescription);
+  els.joinAnswer.value = replyCode;
+  renderQR(replyCode, els.joinAnswerQR);
   setStatus("Send the reply back to the host…", "warn");
 }
 
@@ -731,6 +872,72 @@ function advanceProgress(from, to, durationMs = 200) {
   step();
 }
 
+// ---- QR scanner ---------------------------------------------------------
+// Uses the native BarcodeDetector API where available (Chromium-based
+// browsers + recent Safari). Where it isn't, the Scan button stays hidden
+// and the user falls back to typing / pasting / a stand-alone QR app.
+
+const SCANNER_SUPPORTED =
+  typeof window.BarcodeDetector === "function";
+
+let scannerStream = null;
+let scannerRaf = 0;
+let scannerCancelled = false;
+
+async function openScanner(targetTextarea) {
+  if (!SCANNER_SUPPORTED) return;
+  scannerCancelled = false;
+  els.scannerMsg.textContent = "Point at the QR code on the other device…";
+  show(els.scanner);
+
+  try {
+    scannerStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } },
+      audio: false,
+    });
+  } catch (e) {
+    els.scannerMsg.textContent = "Couldn't access camera: " + (e.message || e);
+    return;
+  }
+  els.scannerVideo.srcObject = scannerStream;
+  await els.scannerVideo.play().catch(() => {});
+
+  const detector = new BarcodeDetector({ formats: ["qr_code"] });
+  const tick = async () => {
+    if (scannerCancelled) return;
+    let codes = [];
+    try {
+      codes = await detector.detect(els.scannerVideo);
+    } catch {}
+    if (codes.length > 0) {
+      const value = codes[0].rawValue || "";
+      if (value) {
+        targetTextarea.value = value;
+        closeScanner();
+        return;
+      }
+    }
+    scannerRaf = requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+function closeScanner() {
+  scannerCancelled = true;
+  if (scannerRaf) { cancelAnimationFrame(scannerRaf); scannerRaf = 0; }
+  if (scannerStream) {
+    scannerStream.getTracks().forEach((t) => t.stop());
+    scannerStream = null;
+  }
+  els.scannerVideo.srcObject = null;
+  hide(els.scanner);
+}
+
+if (SCANNER_SUPPORTED) {
+  show(els.scanOffer);
+  show(els.scanAnswer);
+}
+
 // ---- Wire UI ------------------------------------------------------------
 $("btn-host").addEventListener("click", startHost);
 $("btn-join").addEventListener("click", startJoin);
@@ -746,6 +953,10 @@ $("reset-join").addEventListener("click", resetAll);
 $("hangup").addEventListener("click", resetAll);
 
 $("run-test").addEventListener("click", runTest);
+
+els.scanOffer.addEventListener("click", () => openScanner(els.joinOfferInput));
+els.scanAnswer.addEventListener("click", () => openScanner(els.hostAnswerInput));
+els.scannerCancel.addEventListener("click", closeScanner);
 
 async function copyText(text, btn) {
   if (!text) return;
@@ -763,6 +974,7 @@ async function copyText(text, btn) {
 }
 
 function resetAll() {
+  closeScanner();
   try { dc?.close(); } catch {}
   try { pc?.close(); } catch {}
   dc = null;
@@ -771,6 +983,10 @@ function resetAll() {
   els.hostAnswerInput.value = "";
   els.joinOfferInput.value = "";
   els.joinAnswer.value = "";
+  els.hostOfferQR.innerHTML = "";
+  els.hostOfferQR.hidden = true;
+  els.joinAnswerQR.innerHTML = "";
+  els.joinAnswerQR.hidden = true;
   els.rPing.textContent = "—";
   els.rDown.textContent = "—";
   els.rUp.textContent = "—";

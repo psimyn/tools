@@ -15,10 +15,16 @@ with no internet, signalling server, STUN or TURN.
   *host* (LAN) ICE candidates are gathered. There's no public-internet
   fall-back — if the two devices can't reach each other on the LAN, the
   connection won't form.
-- The SDP offer / answer is base64-encoded into a single line of text and
-  exchanged manually (textarea + Copy button). The user pastes it across
-  via whatever sneakernet they like — AirDrop, KDE Connect, a chat app,
-  email, or just by typing it in.
+- The SDP offer / answer is gzipped (`CompressionStream("deflate-raw")`)
+  then base64-encoded with a 1-byte format flag, and shown as both a
+  textarea and a QR code. The QR is rendered with Kazuhiko Arase's
+  `qrcode-generator` library (vendored in `public/qrcode.js`). Compression
+  roughly halves the payload, which keeps the QR around Version 15
+  (~75×75 modules) — well within phone-camera scanning range.
+- A "Scan QR" button on each side uses the native `BarcodeDetector` API
+  to read the other device's code straight from the camera, no app
+  install required. The button stays hidden on browsers without
+  `BarcodeDetector` (Firefox today); those users paste the text manually.
 - Once connected, an ordered `RTCDataChannel` carries:
   - JSON control messages (`ping`/`pong`, `prep_recv`, `start_send`,
     `end_send`, `result`),
