@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0f1115" />
+<title>Barcode</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --ink: #e9edf5;
+    --muted: #8993a7;
+    --accent: #ffd84d;
+    --line: rgba(255, 255, 255, 0.08);
+    --ok: #4ade80;
+    --err: #f87171;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+    min-height: 100svh;
+  }
+  main { max-width: 560px; margin: 0 auto; padding: 28px 18px 64px; }
+  h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  header p { color: var(--muted); margin: 0 0 22px; font-size: 14px; }
+
+  .tabs {
+    display: flex;
+    gap: 6px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 5px;
+    margin-bottom: 18px;
+  }
+  .tabs button {
+    flex: 1;
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 9px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .tabs button[aria-selected="true"] {
+    background: var(--accent);
+    color: #0f1115;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px;
+  }
+  .panel.hidden { display: none; }
+
+  label {
+    display: block;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 6px;
+  }
+  .row { margin-bottom: 16px; }
+  .row:last-child { margin-bottom: 0; }
+
+  input[type="text"], select, textarea {
+    width: 100%;
+    appearance: none;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    font: inherit;
+    font-size: 15px;
+    padding: 11px 13px;
+    border-radius: 10px;
+  }
+  input[type="text"]:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  select { cursor: pointer; }
+
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; }
+  button.action {
+    appearance: none;
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--ink);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  button.action:active { background: rgba(255, 255, 255, 0.14); }
+  button.action.primary { background: var(--accent); color: #0f1115; border-color: transparent; }
+  button.action:disabled { opacity: 0.4; cursor: default; }
+
+  #barcode-stage {
+    margin: 4px 0 16px;
+    background: #fff;
+    border-radius: 10px;
+    padding: 16px;
+    min-height: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow-x: auto;
+  }
+  #barcode-stage svg { max-width: 100%; height: auto; }
+  #barcode-stage.empty { background: rgba(255,255,255,0.03); color: var(--muted); font-size: 14px; }
+
+  .msg { font-size: 13px; min-height: 1.2em; margin-top: 4px; }
+  .msg.error { color: var(--err); }
+  .msg.ok { color: var(--ok); }
+
+  /* Scan */
+  #video-wrap {
+    position: relative;
+    background: #000;
+    border-radius: 10px;
+    overflow: hidden;
+    aspect-ratio: 4 / 3;
+    margin-bottom: 14px;
+    display: none;
+  }
+  #video-wrap.live { display: block; }
+  #video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .reticle {
+    position: absolute;
+    inset: 14% 10%;
+    border: 2px solid rgba(255, 216, 77, 0.9);
+    border-radius: 10px;
+    box-shadow: 0 0 0 100vmax rgba(0,0,0,0.25);
+    pointer-events: none;
+  }
+
+  .result {
+    margin-top: 12px;
+    background: rgba(74, 222, 128, 0.08);
+    border: 1px solid rgba(74, 222, 128, 0.3);
+    border-radius: 10px;
+    padding: 14px;
+    display: none;
+  }
+  .result.show { display: block; }
+  .result .fmt {
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .result .text {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 15px;
+    word-break: break-all;
+    white-space: pre-wrap;
+    margin-bottom: 12px;
+  }
+
+  footer { margin-top: 28px; color: var(--muted); font-size: 12px; text-align: center; }
+  footer a { color: var(--accent); }
+
+  @media print {
+    body * { visibility: hidden; }
+    #print-area, #print-area * { visibility: visible; }
+    #print-area {
+      position: fixed;
+      inset: 0;
+      display: flex !important;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #fff;
+      padding: 0;
+    }
+  }
+</style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Barcode</h1>
+      <p>Type or paste text to generate a barcode, or scan one with your camera.</p>
+    </header>
+
+    <div class="tabs" role="tablist">
+      <button id="tab-gen" role="tab" aria-selected="true">Generate</button>
+      <button id="tab-scan" role="tab" aria-selected="false">Scan</button>
+    </div>
+
+    <!-- GENERATE -->
+    <section id="panel-gen" class="panel">
+      <div class="row">
+        <label for="gen-text">Text</label>
+        <input id="gen-text" type="text" placeholder="Paste or type anything…" autocomplete="off" />
+      </div>
+      <div class="row">
+        <label for="gen-format">Format</label>
+        <select id="gen-format">
+          <option value="CODE128" selected>Code 128 (any text)</option>
+          <option value="CODE39">Code 39</option>
+          <option value="EAN13">EAN-13 (12–13 digits)</option>
+          <option value="EAN8">EAN-8 (7–8 digits)</option>
+          <option value="UPC">UPC-A (11–12 digits)</option>
+          <option value="ITF14">ITF-14 (14 digits)</option>
+          <option value="MSI">MSI</option>
+          <option value="codabar">Codabar</option>
+          <option value="pharmacode">Pharmacode (number)</option>
+        </select>
+      </div>
+      <div id="print-area">
+        <div id="barcode-stage" class="empty">Barcode appears here</div>
+      </div>
+      <div class="btns">
+        <button id="gen-download" class="action" disabled>Download PNG</button>
+        <button id="gen-print" class="action" disabled>Print</button>
+      </div>
+      <div id="gen-msg" class="msg"></div>
+    </section>
+
+    <!-- SCAN -->
+    <section id="panel-scan" class="panel hidden">
+      <div id="video-wrap">
+        <video id="video" autoplay playsinline muted></video>
+        <div class="reticle"></div>
+      </div>
+      <div class="btns">
+        <button id="scan-start" class="action primary">Start camera</button>
+        <button id="scan-stop" class="action" style="display:none">Stop</button>
+        <button id="scan-flip" class="action" style="display:none">Flip</button>
+      </div>
+      <div id="scan-msg" class="msg"></div>
+      <div id="scan-result" class="result">
+        <div class="fmt" id="result-fmt"></div>
+        <div class="text" id="result-text"></div>
+        <div class="btns">
+          <button id="result-copy" class="action primary">Copy</button>
+          <button id="result-again" class="action">Scan again</button>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      Built with <a href="https://github.com/lindell/JsBarcode">JsBarcode</a> &amp;
+      <a href="https://github.com/zxing-js/library">ZXing</a>.
+      Camera scanning needs HTTPS or localhost.
+    </footer>
+  </main>
+
+<script src="https://unpkg.com/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script>
+(() => {
+  "use strict";
+
+  // --- Tabs ---
+  const tabGen = document.getElementById('tab-gen');
+  const tabScan = document.getElementById('tab-scan');
+  const panelGen = document.getElementById('panel-gen');
+  const panelScan = document.getElementById('panel-scan');
+
+  function selectTab(which) {
+    const gen = which === 'gen';
+    tabGen.setAttribute('aria-selected', String(gen));
+    tabScan.setAttribute('aria-selected', String(!gen));
+    panelGen.classList.toggle('hidden', !gen);
+    panelScan.classList.toggle('hidden', gen);
+    if (gen) stopScan();
+  }
+  tabGen.addEventListener('click', () => selectTab('gen'));
+  tabScan.addEventListener('click', () => selectTab('scan'));
+
+  // --- Generate ---
+  const genText = document.getElementById('gen-text');
+  const genFormat = document.getElementById('gen-format');
+  const stage = document.getElementById('barcode-stage');
+  const genMsg = document.getElementById('gen-msg');
+  const downloadBtn = document.getElementById('gen-download');
+  const printBtn = document.getElementById('gen-print');
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  function clearBarcode(placeholder) {
+    stage.innerHTML = placeholder || 'Barcode appears here';
+    stage.classList.add('empty');
+    downloadBtn.disabled = true;
+    printBtn.disabled = true;
+  }
+
+  function renderBarcode() {
+    const value = genText.value;
+    const format = genFormat.value;
+    genMsg.textContent = '';
+    genMsg.className = 'msg';
+
+    if (!value) { clearBarcode(); return; }
+
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    try {
+      JsBarcode(svg, value, {
+        format,
+        displayValue: true,
+        background: '#ffffff',
+        lineColor: '#000000',
+        margin: 10,
+        fontSize: 16,
+        height: 90,
+      });
+    } catch (err) {
+      clearBarcode('—');
+      genMsg.textContent = err && err.message ? err.message : 'Could not encode this text in the selected format.';
+      genMsg.className = 'msg error';
+      return;
+    }
+
+    stage.classList.remove('empty');
+    stage.innerHTML = '';
+    stage.appendChild(svg);
+    downloadBtn.disabled = false;
+    printBtn.disabled = false;
+  }
+
+  genText.addEventListener('input', renderBarcode);
+  genFormat.addEventListener('change', renderBarcode);
+
+  // Rasterise the current SVG barcode to a PNG canvas at high resolution.
+  function svgToCanvas(scale) {
+    return new Promise((resolve, reject) => {
+      const svg = stage.querySelector('svg');
+      if (!svg) { reject(new Error('Nothing to export')); return; }
+      const w = svg.width.baseVal.value || svg.getBoundingClientRect().width;
+      const h = svg.height.baseVal.value || svg.getBoundingClientRect().height;
+      const xml = new XMLSerializer().serializeToString(svg);
+      const blob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.ceil(w * scale);
+        canvas.height = Math.ceil(h * scale);
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        resolve(canvas);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Render failed')); };
+      img.src = url;
+    });
+  }
+
+  downloadBtn.addEventListener('click', async () => {
+    try {
+      const canvas = await svgToCanvas(3);
+      const a = document.createElement('a');
+      const base = (genText.value || 'barcode').replace(/[^\w.-]+/g, '_').slice(0, 40);
+      a.download = `${base || 'barcode'}.png`;
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    } catch (err) {
+      genMsg.textContent = err.message || 'Download failed.';
+      genMsg.className = 'msg error';
+    }
+  });
+
+  printBtn.addEventListener('click', () => window.print());
+
+  // --- Scan ---
+  const video = document.getElementById('video');
+  const videoWrap = document.getElementById('video-wrap');
+  const scanStart = document.getElementById('scan-start');
+  const scanStop = document.getElementById('scan-stop');
+  const scanFlip = document.getElementById('scan-flip');
+  const scanMsg = document.getElementById('scan-msg');
+  const resultBox = document.getElementById('scan-result');
+  const resultFmt = document.getElementById('result-fmt');
+  const resultText = document.getElementById('result-text');
+  const resultCopy = document.getElementById('result-copy');
+  const resultAgain = document.getElementById('result-again');
+
+  let reader = null;
+  let facing = 'environment';
+  let scanning = false;
+
+  function setScanUI(live) {
+    videoWrap.classList.toggle('live', live);
+    scanStart.style.display = live ? 'none' : '';
+    scanStop.style.display = live ? '' : 'none';
+    scanFlip.style.display = live ? '' : 'none';
+  }
+
+  async function startScan() {
+    if (typeof ZXing === 'undefined') {
+      scanMsg.textContent = 'Scanner library failed to load. Check your connection.';
+      scanMsg.className = 'msg error';
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      scanMsg.textContent = 'Camera not available. Serve over HTTPS or localhost.';
+      scanMsg.className = 'msg error';
+      return;
+    }
+    scanMsg.textContent = 'Starting camera…';
+    scanMsg.className = 'msg';
+    resultBox.classList.remove('show');
+
+    if (!reader) reader = new ZXing.BrowserMultiFormatReader();
+    try {
+      await reader.decodeFromConstraints(
+        { video: { facingMode: { ideal: facing } } },
+        video,
+        (result, err) => {
+          if (result) onScanned(result);
+        }
+      );
+      scanning = true;
+      setScanUI(true);
+      scanMsg.textContent = 'Point the camera at a barcode or QR code.';
+      scanMsg.className = 'msg';
+    } catch (err) {
+      scanMsg.textContent = `Camera error: ${err && (err.message || err.name) || err}`;
+      scanMsg.className = 'msg error';
+      setScanUI(false);
+    }
+  }
+
+  function stopScan() {
+    if (reader) reader.reset();
+    scanning = false;
+    setScanUI(false);
+  }
+
+  function onScanned(result) {
+    const text = result.getText();
+    let fmt = '';
+    try { fmt = ZXing.BarcodeFormat[result.getBarcodeFormat()] || ''; } catch (_) {}
+    resultFmt.textContent = fmt ? fmt.replace(/_/g, ' ') : 'Scanned';
+    resultText.textContent = text;
+    resultBox.classList.add('show');
+    scanMsg.textContent = '';
+    scanMsg.className = 'msg';
+    stopScan();
+    if (navigator.vibrate) navigator.vibrate(60);
+  }
+
+  scanStart.addEventListener('click', startScan);
+  scanStop.addEventListener('click', () => {
+    stopScan();
+    scanMsg.textContent = '';
+  });
+  scanFlip.addEventListener('click', async () => {
+    facing = facing === 'environment' ? 'user' : 'environment';
+    stopScan();
+    await startScan();
+  });
+  resultAgain.addEventListener('click', () => {
+    resultBox.classList.remove('show');
+    startScan();
+  });
+  resultCopy.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(resultText.textContent);
+      resultCopy.textContent = 'Copied';
+      setTimeout(() => { resultCopy.textContent = 'Copy'; }, 1400);
+    } catch (_) {
+      resultCopy.textContent = 'Copy failed';
+      setTimeout(() => { resultCopy.textContent = 'Copy'; }, 1400);
+    }
+  });
+
+  window.addEventListener('pagehide', stopScan);
+
+  // Seed an example so the page isn't empty on load.
+  genText.value = 'Hello, barcode!';
+  renderBarcode();
+})();
+</script>
+</body>
+</html>
