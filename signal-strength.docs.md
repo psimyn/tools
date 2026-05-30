@@ -1,8 +1,8 @@
 # Signal Strength
 
 Live map of mobile phone reception across Victoria and Melbourne, combining
-official coverage polygons and cell-site locations from multiple open
-data sources.
+official coverage polygons, licensed transmitter sites, and government-funded
+black-spot towers from three independent open-data sources.
 
 ## Prompt
 
@@ -12,27 +12,39 @@ data sources.
 
 ## Data sources
 
-The app overlays two classes of data on an OpenStreetMap / CARTO dark
-basemap:
+The app overlays three classes of data on an OpenStreetMap / CARTO dark
+basemap. All three are public ArcGIS REST services published by the federal
+Department of Infrastructure at `spatial.infrastructure.gov.au`, so the app
+needs no server of its own and no API keys.
 
-1. **ACCC Mobile Infrastructure — Coverage polygons.** Sourced from the
-   federal Department of Infrastructure's ArcGIS service at
-   `spatial.infrastructure.gov.au`, which republishes the ACCC's annual
-   *Audit of Telecommunications Infrastructure Assets* (Infrastructure
-   RKR). Every quarter the three national MNOs (Telstra, Optus, TPG /
-   Vodafone) submit predicted coverage rasters for 3G / 4G / 5G, both
-   outdoor handheld and external-antenna. The app prefers the *outdoor*
-   variants since they match normal phone use.
+1. **ACCC Mobile Infrastructure — coverage polygons.** Republished from the
+   ACCC's annual *Audit of Telecommunications Infrastructure Assets*
+   (Infrastructure RKR). Every quarter the three national MNOs (Telstra,
+   Optus, TPG / Vodafone) submit predicted coverage rasters for 3G / 4G /
+   5G in both *outdoor* and *external-antenna* variants. The app prefers
+   outdoor since it matches normal handheld use. The 2025 service also
+   surfaces TPG's MOCN coverage on Optus's network as a separate sub-layer
+   — these are folded under the TPG carrier toggle.
 
 2. **ACMA Mobile Phone Sites.** Points drawn from the ACMA Register of
    Radiocommunications Licences — the authoritative list of licensed
-   transmitters in Australia. Useful for spotting why a pocket of no
-   reception exists (no tower nearby) or why coverage suddenly improves
-   (new tower).
+   transmitters in Australia. Useful for explaining a coverage gap
+   ("there's no tower nearby") or a sudden coverage edge ("new site went
+   live here").
 
-Both services are consumed via ArcGIS REST `MapServer` endpoints using
-[esri-leaflet](https://github.com/Esri/esri-leaflet), so there's no
-server of our own and no API key.
+3. **Mobile Black Spot Program funded base stations.** Government-funded
+   towers from rounds 1 through 8 of the MBSP, currently building out
+   reception in regional Victoria. Drawn as purple points. Combined with
+   the predicted-coverage polygons they answer the question "is patchy
+   coverage here going to get better?".
+
+A separate place-search box uses the public **Nominatim** OSM geocoder,
+bounded to a Victoria viewbox so a search for "St Kilda" lands in
+Melbourne and not in Otago.
+
+All ArcGIS sources are consumed via
+[esri-leaflet](https://github.com/Esri/esri-leaflet) dynamic-map layers
+plus a single ArcGIS Identify request per click for the popup.
 
 ## Features
 
@@ -40,6 +52,9 @@ server of our own and no API key.
 - **Carrier filter** — show or hide Telstra, Optus and TPG independently
   (each carrier renders as a distinct colour).
 - **Cell-site toggle** — overlay the ACMA RRL transmitter points.
+- **Black-spot tower toggle** — overlay MBSP funded base stations.
+- **Place search** — type a Victorian town or suburb, jump to it, and
+  auto-identify coverage there.
 - **Tap to identify** — clicking anywhere runs an ArcGIS Identify query
   and reports which carriers × techs claim coverage at that spot.
 - **Locate me** — drops a pin at your GPS location and runs an identify
@@ -67,10 +82,15 @@ server of our own and no API key.
   currently-enabled layer at once and groups the results by carrier ×
   tech, so the popup can say "Telstra: 5G, 4G · Optus: 4G · TPG: no
   signal" after a single round-trip.
+- **Debounced, scoped place search.** Nominatim queries are debounced
+  to ~280 ms and tagged with a sequence number so a slow response from
+  an older keystroke can't overwrite the latest results. The viewbox +
+  `bounded=1` + `countrycodes=au` parameters keep matches local.
 - **No build step.** One self-contained HTML file. Leaflet and
   esri-leaflet are loaded from unpkg.
-- Carrier colours — Telstra blue, Optus orange, TPG/Vodafone red —
-  roughly mirror their brand palettes for quick recognition.
+- Carrier colours — Telstra blue, Optus orange, TPG/Vodafone red,
+  black-spot towers purple — roughly mirror brand palettes for quick
+  recognition.
 
 ## Caveats
 
@@ -80,6 +100,9 @@ server of our own and no API key.
 - The ACMA sites layer includes *all* licensed radiocommunications
   transmitters, not just mobile cell towers, so at very high zoom
   levels you'll see more points than just 3/4/5G sites.
-- The app isn't attempting to crowdsource real-world measurements
-  (OpenCellID, etc.) because those services require per-user API keys
-  that don't belong in a static single-file page.
+- MBSP locations are *indicative* of where funded towers go. Some are
+  already live, others are still under construction — the data set
+  doesn't differentiate.
+- The app intentionally avoids crowdsourced measurement services
+  (OpenCellID, OpenSignal, nPerf etc.) because they require per-user
+  API keys that don't belong in a static single-file page.

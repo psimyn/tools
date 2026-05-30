@@ -19,6 +19,7 @@
     --optus: #f59e0b;
     --tpg: #ef4444;
     --sites: #22d3ee;
+    --mbsp: #a78bfa;
   }
   * { box-sizing: border-box; }
   html, body {
@@ -132,6 +133,39 @@
     background: var(--accent);
     color: #1a1400;
   }
+
+  .search { position: relative; }
+  .search input {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    font: inherit;
+    font-size: 13px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    outline: none;
+  }
+  .search input:focus { border-color: var(--accent); }
+  .search-results {
+    margin-top: 4px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    display: none;
+  }
+  .search-results.shown { display: block; }
+  .search-results .result {
+    padding: 7px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--line);
+  }
+  .search-results .result:last-child { border-bottom: none; }
+  .search-results .result:hover { background: rgba(255, 216, 77, 0.08); }
+  .search-results .result .label { color: var(--ink); }
+  .search-results .result .sub { color: var(--muted); font-size: 11px; }
 
   .opacity {
     display: flex;
@@ -294,6 +328,22 @@
           <span class="name">Cell sites</span>
           <span class="meta">ACMA RRL</span>
         </label>
+        <label class="row">
+          <input type="checkbox" data-layer="mbsp" />
+          <span class="sw" style="background: var(--mbsp);"></span>
+          <span class="name">Black-spot towers</span>
+          <span class="meta">MBSP</span>
+        </label>
+      </div>
+
+      <div class="group">
+        <div class="title">Find a place</div>
+        <div class="search">
+          <input id="searchInput" type="search"
+            placeholder="e.g. Mallacoota, Bright, Shepparton"
+            autocomplete="off" spellcheck="false" />
+          <div class="search-results" id="searchResults"></div>
+        </div>
       </div>
 
       <div class="group">
@@ -312,8 +362,10 @@
 
       <div class="legend">
         Coverage polygons come from the <b>ACCC Infrastructure RKR</b>
-        (Telstra + Optus + TPG predictions). Cell site points come from the
-        <b>ACMA RRL</b>. Tap the map for a quick identify.
+        (Telstra + Optus + TPG predictions). Cell sites come from the
+        <b>ACMA RRL</b>. Black-spot tower locations come from the
+        <b>Mobile Black Spot Program</b> (rounds 1–8 funded base stations).
+        Tap the map for a quick identify.
       </div>
     </div>
   </div>
@@ -323,7 +375,9 @@
   <div class="attr">
     Tiles © <a href="https://www.openstreetmap.org/copyright">OSM</a> ·
     Coverage © <a href="https://data.gov.au/data/dataset/accc-mobile-infrastructure-report-data-release">ACCC</a> ·
-    Sites © <a href="https://www.acma.gov.au/register-radiocommunications-licences-rrl">ACMA</a>
+    Sites © <a href="https://www.acma.gov.au/register-radiocommunications-licences-rrl">ACMA</a> ·
+    MBSP © <a href="https://www.infrastructure.gov.au/media-communications/phone/mobile-services-and-coverage/mobile-black-spot-program">DITRDCSA</a> ·
+    Search © <a href="https://nominatim.org/">Nominatim</a>
   </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -372,6 +426,10 @@
   let COVERAGE_URL = COVERAGE_CANDIDATES[0];
   const SITES_URL =
     "https://spatial.infrastructure.gov.au/server/rest/services/Communications/Mobile_Phone_Sites/MapServer";
+  // Mobile Black Spot Program — government-funded base stations across
+  // rounds 1 through 8, each round is a separate sub-layer.
+  const MBSP_URL =
+    "https://spatial.infrastructure.gov.au/server/rest/services/Mobile_Black_Spot_Program_Funded_Base_Stations/MapServer";
 
   // Classify a layer name into {carrier, tech, kind}. Layer names in
   // these services look like "Telstra 4G Outdoor Mobile Coverage ACCC
@@ -556,6 +614,30 @@
     }
   }
 
+  // Mobile Black Spot Program funded base stations — pulled as a single
+  // dynamic image of all rounds so the points fall under the carrier
+  // coverage overlays. Useful in regional VIC where these locations
+  // explain why coverage is patchy or where it's about to improve.
+  let mbspLayer = null;
+  function setMbspEnabled(enabled) {
+    if (enabled && !mbspLayer) {
+      mbspLayer = L.esri.dynamicMapLayer({
+        url: MBSP_URL,
+        opacity: 0.95,
+        format: "png32",
+        transparent: true,
+      });
+      mbspLayer.on("requesterror", (e) => {
+        console.warn("MBSP request failed", e);
+        showStatus("Could not load MBSP overlay", 4000);
+      });
+      mbspLayer.addTo(map);
+    } else if (!enabled && mbspLayer) {
+      map.removeLayer(mbspLayer);
+      mbspLayer = null;
+    }
+  }
+
   // --- Opacity ----------------------------------------------------------
   let currentOpacity = 0.55;
   const opacityInput = document.getElementById("opacity");
@@ -573,6 +655,8 @@
       const key = cb.dataset.layer;
       if (key === "sites") {
         setSitesEnabled(cb.checked);
+      } else if (key === "mbsp") {
+        setMbspEnabled(cb.checked);
       } else if (carrierState[key]) {
         carrierState[key].enabled = cb.checked;
         rebuildCarrier(key);
@@ -729,6 +813,85 @@
 
   document.getElementById("resetBtn").addEventListener("click", () => {
     map.setView(MELBOURNE, DEFAULT_ZOOM);
+  });
+
+  // --- Place search (Nominatim) ----------------------------------------
+  //
+  // The viewbox + bounded=1 hint keeps results focused on Victoria/SE
+  // Australia so a search for "St Kilda" lands on the Melbourne suburb
+  // rather than the Otago one. We debounce keystrokes and ignore the
+  // response if a newer request has already started.
+  const searchInput = document.getElementById("searchInput");
+  const searchResults = document.getElementById("searchResults");
+  let searchTimer = null;
+  let searchSeq = 0;
+
+  // Victoria bounding box: (lon_min, lat_min, lon_max, lat_max).
+  // Nominatim wants it as left,top,right,bottom — i.e. lon,lat,lon,lat.
+  const VIC_VIEWBOX = "140.96,-33.98,150.04,-39.20";
+
+  function clearSearchResults() {
+    searchResults.innerHTML = "";
+    searchResults.classList.remove("shown");
+  }
+
+  async function runSearch(q) {
+    const mySeq = ++searchSeq;
+    const url =
+      "https://nominatim.openstreetmap.org/search" +
+      "?format=json&limit=6&addressdetails=1&bounded=1" +
+      "&viewbox=" + VIC_VIEWBOX +
+      "&countrycodes=au" +
+      "&q=" + encodeURIComponent(q);
+    try {
+      const res = await fetch(url, { headers: { Accept: "application/json" } });
+      if (mySeq !== searchSeq) return;
+      const data = await res.json();
+      if (mySeq !== searchSeq) return;
+      if (!Array.isArray(data) || !data.length) {
+        searchResults.innerHTML =
+          '<div class="result"><span class="sub">No matches in Victoria</span></div>';
+        searchResults.classList.add("shown");
+        return;
+      }
+      searchResults.innerHTML = data.map((d) => {
+        const parts = (d.display_name || "").split(",");
+        const label = parts[0].trim();
+        const sub = parts.slice(1, 4).join(",").trim();
+        return '<div class="result" data-lat="' + d.lat + '" data-lon="' + d.lon +
+          '"><div class="label">' + label + '</div>' +
+          '<div class="sub">' + sub + '</div></div>';
+      }).join("");
+      searchResults.classList.add("shown");
+    } catch (err) {
+      if (mySeq !== searchSeq) return;
+      searchResults.innerHTML =
+        '<div class="result"><span class="sub">Search failed</span></div>';
+      searchResults.classList.add("shown");
+    }
+  }
+
+  searchInput.addEventListener("input", () => {
+    const q = searchInput.value.trim();
+    clearTimeout(searchTimer);
+    if (q.length < 2) { clearSearchResults(); return; }
+    searchTimer = setTimeout(() => runSearch(q), 280);
+  });
+
+  searchResults.addEventListener("click", (e) => {
+    const el = e.target.closest(".result");
+    if (!el || !el.dataset.lat) return;
+    const lat = parseFloat(el.dataset.lat);
+    const lon = parseFloat(el.dataset.lon);
+    map.setView([lat, lon], 13);
+    clearSearchResults();
+    searchInput.value = "";
+    identifyAt(L.latLng(lat, lon));
+  });
+
+  document.addEventListener("click", (e) => {
+    if (e.target.closest(".search")) return;
+    clearSearchResults();
   });
 
   // --- Panel collapse ---------------------------------------------------
