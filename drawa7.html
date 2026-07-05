@@ -3,26 +3,25 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#0f1115" />
+<meta name="theme-color" content="#0e0e0e" />
 <title>drawa7</title>
 <style>
   :root {
-    --bg: #0f1115;
-    --panel: #171a21;
-    --ink: #e9edf5;
-    --muted: #8993a7;
-    --accent: #ffd84d;
-    --grid-paper: #8aa8dd;
-    --grid-paper-center: #4d74c4;
-    --shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+    --bg: #0e0e0e;
+    --ink: #e8e8e8;
+    --muted: #8a8a8a;
+    --line: #333;
+    --grid: #ff3b30;
+    --grid-paper: #a9bede;
+    --grid-paper-center: #5b7fc7;
   }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; border-radius: 0; }
   html, body {
     margin: 0;
     padding: 0;
     background: var(--bg);
     color: var(--ink);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
     height: 100svh;
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
@@ -41,15 +40,14 @@
     flex-direction: column;
     align-items: center;
     gap: 10px;
-    padding: 12px 12px 82px; /* bottom room for the control panel */
+    padding: 12px 12px 76px; /* bottom room for the control bar */
   }
 
   #page {
     position: relative;
     background: #000;
     overflow: hidden;
-    outline: 1px solid rgba(255, 255, 255, 0.85);
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+    outline: 1px solid var(--ink);
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     flex: none;
@@ -70,47 +68,37 @@
     height: 100%;
     pointer-events: none;
   }
-  #grid line {
-    stroke: var(--accent);
-    stroke-width: 1.5;
-    filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, 0.9));
+  #grid line { stroke: var(--grid); stroke-width: 1; }
+  #grid line.minor { opacity: 0.5; }
+  #page:not([data-mode="grid"]) #grid line {
+    filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8));
   }
-  #grid line.minor { stroke-width: 1; opacity: 0.75; }
 
-  /* Grid-only mode: blank white "paper" with graph-paper blue lines. */
+  /* Grid-only mode: blank white paper, graph-paper blue lines. */
   #page[data-mode="grid"] { background: #fff; }
   #page[data-mode="grid"] video { visibility: hidden; }
-  #page[data-mode="grid"] #grid line {
-    stroke: var(--grid-paper-center);
-    filter: none;
-  }
+  #page[data-mode="grid"] #grid line { stroke: var(--grid-paper-center); }
   #page[data-mode="grid"] #grid line.minor { stroke: var(--grid-paper); opacity: 1; }
 
   #hint {
-    font-size: 13px;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     color: var(--muted);
     text-align: center;
-    padding: 0 16px;
     user-select: none;
     -webkit-user-select: none;
   }
-  #hint b { color: var(--ink); font-weight: 600; }
+  #hint b { color: var(--ink); font-weight: 400; }
 
   .panel {
     position: fixed;
     left: 50%;
     transform: translateX(-50%);
-    bottom: calc(env(safe-area-inset-bottom) + 16px);
+    bottom: calc(env(safe-area-inset-bottom) + 12px);
     display: flex;
-    gap: 8px;
-    align-items: center;
-    padding: 8px 10px;
-    background: rgba(23, 26, 33, 0.78);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 14px;
-    box-shadow: var(--shadow);
+    background: var(--bg);
+    border: 1px solid var(--line);
     user-select: none;
     -webkit-user-select: none;
     -webkit-tap-highlight-color: transparent;
@@ -118,17 +106,19 @@
   }
   button {
     appearance: none;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.06);
+    border: none;
+    background: transparent;
     color: var(--ink);
     font: inherit;
-    font-size: 13px;
-    padding: 8px 12px;
-    border-radius: 10px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 11px 14px;
     cursor: pointer;
     white-space: nowrap;
   }
-  button:active { background: rgba(255, 255, 255, 0.14); }
+  .panel button + button { border-left: 1px solid var(--line); }
+  button:active { background: #222; }
 
   .overlay {
     position: fixed;
@@ -145,50 +135,47 @@
     align-items: center;
     justify-content: center;
     flex-direction: column;
-    gap: 16px;
+    gap: 20px;
     padding: 24px;
     text-align: center;
   }
   .overlay h1 {
     margin: 0;
-    font-size: 18px;
-    letter-spacing: 0.04em;
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0.25em;
     text-transform: uppercase;
-    color: var(--muted);
   }
   .overlay p {
     margin: 0;
     color: var(--muted);
-    font-size: 14px;
-    max-width: 340px;
-    line-height: 1.5;
+    font-size: 12px;
+    max-width: 320px;
+    line-height: 1.7;
   }
   .overlay button.primary {
-    font-size: 15px;
-    padding: 12px 20px;
-    background: var(--accent);
-    color: #0f1115;
-    font-weight: 600;
-    border: none;
+    border: 1px solid var(--ink);
+    padding: 12px 24px;
   }
   .error {
-    color: #f87171;
-    font-size: 13px;
-    max-width: 340px;
+    color: #f66;
+    font-size: 11px;
+    max-width: 320px;
     min-height: 1.2em;
   }
 
   /* Calibration */
   #card {
-    outline: 2px solid var(--accent);
-    border-radius: 3.18mm; /* real card corner radius */
-    background: rgba(255, 216, 77, 0.08);
+    outline: 1px solid var(--ink);
+    border-radius: 3.18mm; /* matches a real card's corners */
     flex: none;
   }
   #card-caption {
-    font-size: 12px;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     color: var(--muted);
-    margin-top: -8px;
+    margin-top: -10px;
   }
   #cal-controls {
     display: flex;
@@ -206,52 +193,47 @@
     touch-action: none;
   }
   #cal-controls input[type="range"]::-webkit-slider-runnable-track {
-    height: 10px;
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.18);
+    height: 1px;
+    background: var(--muted);
   }
   #cal-controls input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: 34px;
-    height: 34px;
-    margin-top: -12px;
-    border-radius: 50%;
+    width: 14px;
+    height: 30px;
+    margin-top: -15px;
     border: none;
-    background: var(--accent);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+    background: var(--ink);
   }
   #cal-controls input[type="range"]::-moz-range-track {
-    height: 10px;
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.18);
+    height: 1px;
+    background: var(--muted);
   }
   #cal-controls input[type="range"]::-moz-range-thumb {
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
+    width: 14px;
+    height: 30px;
     border: none;
-    background: var(--accent);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+    border-radius: 0;
+    background: var(--ink);
   }
   .cal-step {
-    font-size: 20px;
-    line-height: 1;
-    padding: 10px 14px;
+    border: 1px solid var(--line);
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    font-size: 16px;
     flex: none;
   }
   #cal-readout {
     font-variant-numeric: tabular-nums;
-    font-size: 16px;
-    color: var(--accent);
-    min-width: 72px;
-    text-align: center;
+    font-size: 13px;
+    letter-spacing: 0.08em;
   }
 </style>
 </head>
 <body>
   <div id="stage">
     <div id="stage-inner">
-      <div id="page" data-mode="live" title="Tap to freeze">
+      <div id="page" data-mode="live">
         <video id="video" autoplay playsinline muted></video>
         <svg id="grid" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"></svg>
       </div>
@@ -260,39 +242,36 @@
   </div>
 
   <div class="panel">
-    <button id="switch" title="Switch camera">Flip</button>
-    <button id="rotate" title="Rotate page">Rotate</button>
-    <button id="gridBtn" title="Cycle grid density">Grid: Centre</button>
-    <button id="calBtn" title="Calibrate physical size">Size</button>
+    <button id="switch">Flip</button>
+    <button id="rotate">Rotate</button>
+    <button id="gridBtn">Grid: Centre</button>
+    <button id="calBtn">Size</button>
   </div>
 
   <div class="overlay" id="start-overlay">
     <div class="overlay-inner">
       <h1>drawa7</h1>
-      <p>An A7 page (74 × 105 mm) at actual size with centre gridlines, filled by
-      your camera. Point it at a picture, tap the page to freeze the frame, tap
-      again for gridlines only — then draw it on real paper.</p>
-      <button id="start" class="primary">Enable camera</button>
+      <p>An A7 page (74 × 105 mm) at actual size, filled by the camera, with
+      centre gridlines. Tap the page: freeze → grid only → live.
+      For drawing from a picture.</p>
+      <button id="start" class="primary">Start camera</button>
       <div class="error" id="error"></div>
     </div>
   </div>
 
   <div class="overlay" id="cal-overlay" hidden>
     <div class="overlay-inner">
-      <h1>Calibrate size</h1>
-      <p>Screens report their density imperfectly (and display-zoom settings
-      scale it further), so “actual size” can be off. Hold a standard bank card
-      against the outline and adjust until they match exactly.</p>
+      <h1>Calibrate</h1>
+      <p>Match the outline to a real bank card. Corrects for display scaling.
+      In grid-only mode the page itself can be checked against real A7.</p>
       <div id="card"></div>
-      <div id="card-caption">Bank card · 85.6 × 53.98 mm — wider than A7 (74 mm), taller page</div>
+      <div id="card-caption">85.6 × 53.98 mm — wider than A7 (74 mm)</div>
       <div id="cal-controls">
-        <button id="cal-minus" class="cal-step" title="Smaller">−</button>
+        <button id="cal-minus" class="cal-step">−</button>
         <input type="range" id="cal-slider" min="0.60" max="1.40" step="0.005" value="1" />
-        <button id="cal-plus" class="cal-step" title="Larger">+</button>
+        <button id="cal-plus" class="cal-step">+</button>
       </div>
-      <div id="cal-readout">100%</div>
-      <p>You can also check the page itself against a real A7 sheet (A4 folded
-      into eighths) in grid-only mode.</p>
+      <div id="cal-readout">100.0%</div>
       <button id="cal-done" class="primary">Done</button>
     </div>
   </div>
@@ -365,13 +344,13 @@
   }
 
   function updateHint() {
-    const size = landscape ? 'A7 · 105 × 74 mm' : 'A7 · 74 × 105 mm';
+    const size = landscape ? 'A7 105 × 74' : 'A7 74 × 105';
     const states = {
-      live: '<b>Live</b> — tap the page to freeze',
-      frozen: '<b>Frozen</b> — tap for gridlines only',
-      grid: '<b>Grid only</b> — tap to go live',
+      live: '<b>live</b> — tap to freeze',
+      frozen: '<b>frozen</b> — tap for grid only',
+      grid: '<b>grid</b> — tap for live',
     };
-    hint.innerHTML = size + ' &nbsp;·&nbsp; ' + states[mode];
+    hint.innerHTML = size + ' · ' + states[mode];
   }
 
   function applyMode() {
