@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import html
 import re
+import subprocess
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 import markdown  # type: ignore[import-not-found]
@@ -34,6 +36,27 @@ class App:
     title: str
     summary_html: str
     prompt: str | None
+    updated: str | None
+
+
+def _git_last_updated(paths: list[Path]) -> str | None:
+    """Date (YYYY-MM-DD) of the last commit touching any of `paths`.
+
+    Returns None outside a git checkout or for untracked files. Note the
+    Pages workflow needs `fetch-depth: 0` — on a shallow clone every file
+    reports the same date.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "log", "-1", "--format=%cs", "--"] + [str(p) for p in paths],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        return out or None
+    except (OSError, subprocess.CalledProcessError):
+        return None
 
 
 def _extract_title_from_html(path: Path) -> str:
@@ -110,6 +133,7 @@ def discover_apps() -> list[App]:
             title = _extract_title_from_html(html_path)
             if title == slug:
                 title = _slug_to_title(slug)
+        tracked = [html_path] + ([docs_path] if docs_path else [])
         apps.append(
             App(
                 slug=slug,
@@ -118,6 +142,7 @@ def discover_apps() -> list[App]:
                 title=title,
                 summary_html=summary_html,
                 prompt=prompt,
+                updated=_git_last_updated(tracked),
             )
         )
     return apps
@@ -196,6 +221,12 @@ PAGE_TEMPLATE = """<!doctype html>
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     margin-left: auto;
   }}
+  .app > summary .updated {{
+    color: var(--muted);
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    flex: 0 0 auto;
+  }}
   .app .body {{ padding: 0 18px 16px 36px; }}
   .app .summary {{ color: var(--ink); }}
   .app .summary p:first-child {{ margin-top: 0; }}
@@ -248,7 +279,7 @@ PAGE_TEMPLATE = """<!doctype html>
     </header>
     {cards}
     <footer>
-      Source: <a href="https://github.com/psimyn/apps">psimyn/apps</a>
+      Deployed {deployed} &middot; Source: <a href="https://github.com/psimyn/apps">psimyn/apps</a>
     </footer>
   </main>
 </body>
@@ -258,7 +289,7 @@ PAGE_TEMPLATE = """<!doctype html>
 CARD_TEMPLATE = """    <details class="app">
       <summary>
         <a class="title" href="{href}">{title}</a>
-        <span class="slug">{slug}.html</span>
+        <span class="slug">{slug}.html</span>{updated_block}
       </summary>
       <div class="body">
         {prompt_block}
@@ -276,6 +307,11 @@ def render(apps: list[App]) -> str:
                 href=html.escape(app.slug),
                 title=html.escape(app.title),
                 slug=html.escape(app.slug),
+                updated_block=(
+                    f'\n        <span class="updated" title="last updated">{html.escape(app.updated)}</span>'
+                    if app.updated
+                    else ""
+                ),
                 prompt_block=(
                     f'<blockquote class="prompt">{html.escape(app.prompt)}</blockquote>'
                     if app.prompt
@@ -285,7 +321,8 @@ def render(apps: list[App]) -> str:
             )
             for app in apps
         )
-    return PAGE_TEMPLATE.format(cards=cards)
+    deployed = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return PAGE_TEMPLATE.format(cards=cards, deployed=html.escape(deployed))
 
 
 def main() -> None:

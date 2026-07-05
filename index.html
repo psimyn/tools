@@ -71,6 +71,12 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     margin-left: auto;
   }
+  .app > summary .updated {
+    color: var(--muted);
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    flex: 0 0 auto;
+  }
   .app .body { padding: 0 18px 16px 36px; }
   .app .summary { color: var(--ink); }
   .app .summary p:first-child { margin-top: 0; }
@@ -123,8 +129,24 @@
     </header>
         <details class="app">
       <summary>
+        <a class="title" href="barcode">Barcode</a>
+        <span class="slug">barcode.html</span>
+        <span class="updated" title="last updated">2026-05-27</span>
+      </summary>
+      <div class="body">
+        <blockquote class="prompt">add a barcode generator/scanner. either paste text to print a barcode, or button to trigger camera that scans a barcode and show text</blockquote>
+        <div class="summary"><p>Generate a barcode from any text you type or paste, or scan one with your
+device camera and read the decoded text back. Two tabs in one page: <strong>Generate</strong>
+renders a live barcode you can download as a PNG or print; <strong>Scan</strong> opens the
+camera and decodes 1D barcodes and QR codes, showing the result with a copy
+button.</p></div>
+      </div>
+    </details>
+    <details class="app">
+      <summary>
         <a class="title" href="base64">Base64 &amp; friends</a>
         <span class="slug">base64.html</span>
+        <span class="updated" title="last updated">2026-04-26</span>
       </summary>
       <div class="body">
         <blockquote class="prompt">base64 encoder and decoder, with options for other encodings too</blockquote>
@@ -138,6 +160,7 @@ appear automatically.</p></div>
       <summary>
         <a class="title" href="bpm">BPM</a>
         <span class="slug">bpm.html</span>
+        <span class="updated" title="last updated">2026-04-15</span>
       </summary>
       <div class="body">
         <blockquote class="prompt">bpm, a bpm detector. can tap button, or listen to mic. if listening to mic and tapping, combine the inputs or use the taps to guide transient detection. very minimal UI. basically just a button and a number</blockquote>
@@ -148,8 +171,26 @@ and snap it to the right harmonic.</p></div>
     </details>
     <details class="app">
       <summary>
+        <a class="title" href="drawa7">drawa7</a>
+        <span class="slug">drawa7.html</span>
+        <span class="updated" title="last updated">2026-07-05</span>
+      </summary>
+      <div class="body">
+        <blockquote class="prompt">drawa7, app that renders a7 page at actual size, with centre gridlines. It
+activates the camera and then you can tap the camera to pause it and then it
+just shows the grid lines. It&#x27;s used so that you can then draw stuff based
+on a picture.</blockquote>
+        <div class="summary"><p>An A7 page (74 × 105 mm) rendered on screen at actual physical size, filled by
+the live camera and overlaid with centre gridlines. Point the camera at a
+picture, tap the page to freeze the frame, and tap again for a blank page with
+just the gridlines — a reference for copying the picture onto real A7 paper.</p></div>
+      </div>
+    </details>
+    <details class="app">
+      <summary>
         <a class="title" href="json-sheets">JSON Sheets</a>
         <span class="slug">json-sheets.html</span>
+        <span class="updated" title="last updated">2026-04-28</span>
       </summary>
       <div class="body">
         <blockquote class="prompt">new tool called json sheets
@@ -171,6 +212,7 @@ clipboard; <strong>Copy &amp; open Sheets</strong> does the same and opens a fre
       <summary>
         <a class="title" href="lan-speed">LAN Speed</a>
         <span class="slug">lan-speed.html</span>
+        <span class="updated" title="last updated">2026-05-03</span>
       </summary>
       <div class="body">
         <blockquote class="prompt">lan speed connection tool that works offline.</blockquote>
@@ -184,6 +226,7 @@ with no internet, signalling server, STUN or TURN.</p></div>
       <summary>
         <a class="title" href="protractor">Protractor</a>
         <span class="slug">protractor.html</span>
+        <span class="updated" title="last updated">2026-04-14</span>
       </summary>
       <div class="body">
         <blockquote class="prompt">webcam with protractor overlay</blockquote>
@@ -197,6 +240,7 @@ and the interior angle between them is read off directly.</p></div>
       <summary>
         <a class="title" href="signal-strength">Signal Strength</a>
         <span class="slug">signal-strength.html</span>
+        <span class="updated" title="last updated">2026-04-18</span>
       </summary>
       <div class="body">
         <blockquote class="prompt">make an app called signal strength, showing a map of Victoria/Melbourne
@@ -211,6 +255,7 @@ data sources.</p></div>
       <summary>
         <a class="title" href="spirit-level">Spirit Level</a>
         <span class="slug">spirit-level.html</span>
+        <span class="updated" title="last updated">2026-04-12</span>
       </summary>
       <div class="body">
         <blockquote class="prompt">plain html/js spirit level</blockquote>
@@ -219,7 +264,7 @@ API to show how level your phone (or tablet) is.</p></div>
       </div>
     </details>
     <footer>
-      Source: <a href="https://github.com/psimyn/apps">psimyn/apps</a>
+      Deployed 2026-07-05 05:21 UTC &middot; Source: <a href="https://github.com/psimyn/apps">psimyn/apps</a>
     </footer>
   </main>
 </body>

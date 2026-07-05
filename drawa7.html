@@ -43,6 +43,7 @@
     padding: 12px 12px 76px; /* bottom room for the control bar */
   }
 
+  #page-wrap { position: relative; flex: none; }
   #page {
     position: relative;
     background: #000;
@@ -50,7 +51,6 @@
     outline: 1px solid var(--ink);
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    flex: none;
   }
   #page video {
     position: absolute;
@@ -118,6 +118,7 @@
     white-space: nowrap;
   }
   .panel button + button { border-left: 1px solid var(--line); }
+  .panel[hidden] { display: none; }
   button:active { background: #222; }
 
   .overlay {
@@ -164,39 +165,38 @@
     min-height: 1.2em;
   }
 
-  /* Calibration */
+  /* Calibration: card outline centred over the live page, controls in the bar */
   #card {
+    display: none;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     outline: 1px solid var(--ink);
-    border-radius: 3.18mm; /* matches a real card's corners */
-    flex: none;
+    pointer-events: none; /* taps pass through to the page */
+    z-index: 2;
   }
-  #card-caption {
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-top: -10px;
-  }
-  #cal-controls {
-    display: flex;
+  body.cal #card { display: block; }
+  #cal-panel {
     align-items: center;
-    gap: 10px;
-    width: min(480px, 92vw);
+    width: min(94vw, 520px);
+    padding: 0 4px;
   }
-  #cal-controls input[type="range"] {
+  #cal-panel input[type="range"] {
     flex: 1;
+    min-width: 60px;
     -webkit-appearance: none;
     appearance: none;
     height: 44px;
-    margin: 0;
+    margin: 0 6px;
     background: transparent;
     touch-action: none;
   }
-  #cal-controls input[type="range"]::-webkit-slider-runnable-track {
+  #cal-panel input[type="range"]::-webkit-slider-runnable-track {
     height: 1px;
     background: var(--muted);
   }
-  #cal-controls input[type="range"]::-webkit-slider-thumb {
+  #cal-panel input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
     width: 14px;
     height: 30px;
@@ -204,11 +204,11 @@
     border: none;
     background: var(--ink);
   }
-  #cal-controls input[type="range"]::-moz-range-track {
+  #cal-panel input[type="range"]::-moz-range-track {
     height: 1px;
     background: var(--muted);
   }
-  #cal-controls input[type="range"]::-moz-range-thumb {
+  #cal-panel input[type="range"]::-moz-range-thumb {
     width: 14px;
     height: 30px;
     border: none;
@@ -216,8 +216,7 @@
     background: var(--ink);
   }
   .cal-step {
-    border: 1px solid var(--line);
-    width: 44px;
+    width: 40px;
     height: 44px;
     padding: 0;
     font-size: 16px;
@@ -225,27 +224,41 @@
   }
   #cal-readout {
     font-variant-numeric: tabular-nums;
-    font-size: 13px;
-    letter-spacing: 0.08em;
+    font-size: 12px;
+    letter-spacing: 0.05em;
+    padding: 0 8px;
+    flex: none;
   }
+  #cal-done { border-left: 1px solid var(--line); }
 </style>
 </head>
 <body>
   <div id="stage">
     <div id="stage-inner">
-      <div id="page" data-mode="live">
-        <video id="video" autoplay playsinline muted></video>
-        <svg id="grid" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"></svg>
+      <div id="page-wrap">
+        <div id="page" data-mode="live">
+          <video id="video" autoplay playsinline muted></video>
+          <svg id="grid" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"></svg>
+        </div>
+        <div id="card"></div>
       </div>
       <div id="hint"></div>
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="main-panel">
     <button id="switch">Flip</button>
     <button id="rotate">Rotate</button>
     <button id="gridBtn">Grid: Centre</button>
     <button id="calBtn">Size</button>
+  </div>
+
+  <div class="panel" id="cal-panel" hidden>
+    <button id="cal-minus" class="cal-step">−</button>
+    <input type="range" id="cal-slider" min="0.60" max="1.40" step="0.005" value="1" />
+    <button id="cal-plus" class="cal-step">+</button>
+    <span id="cal-readout">100.0%</span>
+    <button id="cal-done">Done</button>
   </div>
 
   <div class="overlay" id="start-overlay">
@@ -259,22 +272,6 @@
     </div>
   </div>
 
-  <div class="overlay" id="cal-overlay" hidden>
-    <div class="overlay-inner">
-      <h1>Calibrate</h1>
-      <p>Match the outline to a real bank card. Corrects for display scaling.
-      In grid-only mode the page itself can be checked against real A7.</p>
-      <div id="card"></div>
-      <div id="card-caption">85.6 × 53.98 mm — wider than A7 (74 mm)</div>
-      <div id="cal-controls">
-        <button id="cal-minus" class="cal-step">−</button>
-        <input type="range" id="cal-slider" min="0.60" max="1.40" step="0.005" value="1" />
-        <button id="cal-plus" class="cal-step">+</button>
-      </div>
-      <div id="cal-readout">100.0%</div>
-      <button id="cal-done" class="primary">Done</button>
-    </div>
-  </div>
 
 <script>
 (() => {
@@ -295,7 +292,8 @@
   const rotateBtn = document.getElementById('rotate');
   const gridBtn = document.getElementById('gridBtn');
   const calBtn = document.getElementById('calBtn');
-  const calOverlay = document.getElementById('cal-overlay');
+  const mainPanel = document.getElementById('main-panel');
+  const calPanel = document.getElementById('cal-panel');
   const calSlider = document.getElementById('cal-slider');
   const calReadout = document.getElementById('cal-readout');
   const calDone = document.getElementById('cal-done');
@@ -305,6 +303,7 @@
   let facing = 'environment';
   let mode = 'live';              // 'live' | 'frozen' | 'grid'
   let landscape = false;
+  let calibrating = false;
   let scale = parseFloat(localStorage.getItem(SCALE_KEY)) || 1;
   if (!(scale >= 0.6 && scale <= 1.4)) scale = 1;
 
@@ -344,6 +343,10 @@
   }
 
   function updateHint() {
+    if (calibrating) {
+      hint.innerHTML = 'card 85.6 × 53.98 — wider than A7 · <b>match a real card</b>';
+      return;
+    }
     const size = landscape ? 'A7 105 × 74' : 'A7 74 × 105';
     const states = {
       live: '<b>live</b> — tap to freeze',
@@ -428,9 +431,13 @@
     calReadout.textContent = (scale * 100).toFixed(1) + '%';
   }
   calBtn.addEventListener('click', () => {
+    calibrating = true;
     calSlider.value = scale;
     layoutCard();
-    calOverlay.hidden = false;
+    document.body.classList.add('cal');
+    mainPanel.hidden = true;
+    calPanel.hidden = false;
+    updateHint();
   });
   calSlider.addEventListener('input', () => {
     setScale(parseFloat(calSlider.value));
@@ -445,7 +452,11 @@
   document.getElementById('cal-plus').addEventListener('click', () => setScale(scale + 0.005));
   calDone.addEventListener('click', () => {
     localStorage.setItem(SCALE_KEY, String(scale));
-    calOverlay.hidden = true;
+    calibrating = false;
+    document.body.classList.remove('cal');
+    calPanel.hidden = true;
+    mainPanel.hidden = false;
+    updateHint();
   });
 
   layout();
