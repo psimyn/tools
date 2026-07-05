@@ -32,12 +32,16 @@
   #stage {
     position: fixed;
     inset: 0;
+    overflow: auto; /* pan when the page is larger than the viewport */
+    display: grid;
+  }
+  #stage-inner {
+    margin: auto; /* centred when it fits, pannable when it doesn't */
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
     gap: 10px;
-    padding-bottom: 70px; /* room for the control panel */
+    padding: 12px 12px 82px; /* bottom room for the control panel */
   }
 
   #page {
@@ -129,17 +133,22 @@
   .overlay {
     position: fixed;
     inset: 0;
+    overflow: auto;
+    display: grid;
+    background: var(--bg);
+    z-index: 10;
+  }
+  .overlay[hidden] { display: none; }
+  .overlay-inner {
+    margin: auto;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-direction: column;
     gap: 16px;
-    background: var(--bg);
-    z-index: 10;
     padding: 24px;
     text-align: center;
   }
-  .overlay[hidden] { display: none; }
   .overlay h1 {
     margin: 0;
     font-size: 18px;
@@ -176,29 +185,78 @@
     background: rgba(255, 216, 77, 0.08);
     flex: none;
   }
+  #card-caption {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: -8px;
+  }
   #cal-controls {
     display: flex;
     align-items: center;
-    gap: 12px;
-    width: min(340px, 90vw);
+    gap: 10px;
+    width: min(480px, 92vw);
   }
-  #cal-controls input[type="range"] { flex: 1; }
+  #cal-controls input[type="range"] {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 44px;
+    margin: 0;
+    background: transparent;
+    touch-action: none;
+  }
+  #cal-controls input[type="range"]::-webkit-slider-runnable-track {
+    height: 10px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.18);
+  }
+  #cal-controls input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 34px;
+    height: 34px;
+    margin-top: -12px;
+    border-radius: 50%;
+    border: none;
+    background: var(--accent);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  }
+  #cal-controls input[type="range"]::-moz-range-track {
+    height: 10px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.18);
+  }
+  #cal-controls input[type="range"]::-moz-range-thumb {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: none;
+    background: var(--accent);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  }
+  .cal-step {
+    font-size: 20px;
+    line-height: 1;
+    padding: 10px 14px;
+    flex: none;
+  }
   #cal-readout {
     font-variant-numeric: tabular-nums;
-    font-size: 14px;
+    font-size: 16px;
     color: var(--accent);
-    min-width: 48px;
-    text-align: right;
+    min-width: 72px;
+    text-align: center;
   }
 </style>
 </head>
 <body>
   <div id="stage">
-    <div id="page" data-mode="live" title="Tap to freeze">
-      <video id="video" autoplay playsinline muted></video>
-      <svg id="grid" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"></svg>
+    <div id="stage-inner">
+      <div id="page" data-mode="live" title="Tap to freeze">
+        <video id="video" autoplay playsinline muted></video>
+        <svg id="grid" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"></svg>
+      </div>
+      <div id="hint"></div>
     </div>
-    <div id="hint"></div>
   </div>
 
   <div class="panel">
@@ -209,25 +267,34 @@
   </div>
 
   <div class="overlay" id="start-overlay">
-    <h1>drawa7</h1>
-    <p>An A7 page (74 × 105 mm) at actual size with centre gridlines, filled by
-    your camera. Point it at a picture, tap the page to freeze the frame, tap
-    again for gridlines only — then draw it on real paper.</p>
-    <button id="start" class="primary">Enable camera</button>
-    <div class="error" id="error"></div>
+    <div class="overlay-inner">
+      <h1>drawa7</h1>
+      <p>An A7 page (74 × 105 mm) at actual size with centre gridlines, filled by
+      your camera. Point it at a picture, tap the page to freeze the frame, tap
+      again for gridlines only — then draw it on real paper.</p>
+      <button id="start" class="primary">Enable camera</button>
+      <div class="error" id="error"></div>
+    </div>
   </div>
 
   <div class="overlay" id="cal-overlay" hidden>
-    <h1>Calibrate size</h1>
-    <p>Screens report their density imperfectly, so “actual size” can be a few
-    percent off. Hold a standard bank card against the outline and drag the
-    slider until they match exactly.</p>
-    <div id="card"></div>
-    <div id="cal-controls">
-      <input type="range" id="cal-slider" min="0.80" max="1.20" step="0.005" value="1" />
+    <div class="overlay-inner">
+      <h1>Calibrate size</h1>
+      <p>Screens report their density imperfectly (and display-zoom settings
+      scale it further), so “actual size” can be off. Hold a standard bank card
+      against the outline and adjust until they match exactly.</p>
+      <div id="card"></div>
+      <div id="card-caption">Bank card · 85.6 × 53.98 mm — wider than A7 (74 mm), taller page</div>
+      <div id="cal-controls">
+        <button id="cal-minus" class="cal-step" title="Smaller">−</button>
+        <input type="range" id="cal-slider" min="0.60" max="1.40" step="0.005" value="1" />
+        <button id="cal-plus" class="cal-step" title="Larger">+</button>
+      </div>
       <div id="cal-readout">100%</div>
+      <p>You can also check the page itself against a real A7 sheet (A4 folded
+      into eighths) in grid-only mode.</p>
+      <button id="cal-done" class="primary">Done</button>
     </div>
-    <button id="cal-done" class="primary">Done</button>
   </div>
 
 <script>
@@ -260,7 +327,7 @@
   let mode = 'live';              // 'live' | 'frozen' | 'grid'
   let landscape = false;
   let scale = parseFloat(localStorage.getItem(SCALE_KEY)) || 1;
-  if (!(scale >= 0.8 && scale <= 1.2)) scale = 1;
+  if (!(scale >= 0.6 && scale <= 1.4)) scale = 1;
 
   const GRIDS = [
     { name: 'Centre', fractions: [0.5] },
@@ -379,7 +446,7 @@
   function layoutCard() {
     card.style.width = mmToPx(CARD.w) + 'px';
     card.style.height = mmToPx(CARD.h) + 'px';
-    calReadout.textContent = Math.round(scale * 100) + '%';
+    calReadout.textContent = (scale * 100).toFixed(1) + '%';
   }
   calBtn.addEventListener('click', () => {
     calSlider.value = scale;
@@ -387,10 +454,16 @@
     calOverlay.hidden = false;
   });
   calSlider.addEventListener('input', () => {
-    scale = parseFloat(calSlider.value);
+    setScale(parseFloat(calSlider.value));
+  });
+  function setScale(v) {
+    scale = Math.min(1.4, Math.max(0.6, v));
+    calSlider.value = scale;
     layoutCard();
     layout();
-  });
+  }
+  document.getElementById('cal-minus').addEventListener('click', () => setScale(scale - 0.005));
+  document.getElementById('cal-plus').addEventListener('click', () => setScale(scale + 0.005));
   calDone.addEventListener('click', () => {
     localStorage.setItem(SCALE_KEY, String(scale));
     calOverlay.hidden = true;
