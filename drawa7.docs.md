@@ -21,11 +21,14 @@ just the gridlines — a reference for copying the picture onto real A7 paper.
   graph-paper-blue lines) → back to Live. Freezing is just `video.pause()`,
   so no canvas capture is needed.
 - The page is sized in real millimetres via CSS px (`96 / 25.4` px per mm).
-  Because screens report their density imperfectly, the **Size** button opens
-  a calibration screen: hold a standard bank card (ISO ID-1, 85.6 × 53.98 mm)
-  against an outline and adjust a slider (60–140 %, with ± buttons for 0.5 %
-  steps) until they match. The scale factor persists in `localStorage`. Note a
-  bank card is *wider* than A7 (85.6 mm vs 74 mm).
+  Because screens report their density imperfectly, the **Size** button enters
+  an in-place calibration mode: a square-cornered bank-card outline (ISO ID-1,
+  85.6 × 53.98 mm) is drawn centred over the live page, and the bottom bar
+  swaps to a slider (60–140 %, with ± buttons for 0.5 % steps). The page and
+  outline resize together, so it can be matched against a real card — or the
+  page against a real A7 sheet — while watching the camera. The scale factor
+  persists in `localStorage`. Note a bank card is *wider* than A7 (85.6 mm vs
+  74 mm), so the outline overhangs the page sides.
 - If the page is larger than the viewport (landscape on a narrow phone, or a
   scaled-up calibration), the stage scrolls so it can be panned into view.
 - **Grid** cycles the line density: Centre (the crosshair through the middle),
