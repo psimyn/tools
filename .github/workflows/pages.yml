@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so build_index.py can read per-file dates
 
       - name: Setup Python
         uses: actions/setup-python@v5
