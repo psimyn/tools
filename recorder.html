@@ -1,0 +1,1001 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0f1115" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Recorder" />
+<link rel="manifest" href="./recorder.webmanifest" />
+<link rel="apple-touch-icon" href="./recorder-icon.svg" />
+<link rel="icon" href="./recorder-icon.svg" />
+<title>Recorder</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --ink: #e9edf5;
+    --muted: #8993a7;
+    --accent: #ff5d5d;
+    --wave: #3a445c;
+    --line: rgba(255, 255, 255, 0.08);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100svh;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: calc(env(safe-area-inset-top) + 18px) 16px calc(env(safe-area-inset-bottom) + 18px);
+    -webkit-tap-highlight-color: transparent;
+  }
+  main { width: 100%; max-width: 640px; display: flex; flex-direction: column; gap: 18px; }
+  h1 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: center;
+  }
+  button { font: inherit; color: inherit; cursor: pointer; -webkit-user-select: none; user-select: none; }
+
+  /* record deck */
+  .deck {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .recrow { display: flex; align-items: center; justify-content: center; gap: 18px; }
+  .recbtn {
+    appearance: none;
+    width: 72px; height: 72px;
+    border-radius: 50%;
+    border: 2px solid var(--line);
+    background: radial-gradient(circle at 50% 35%, #23161a 0%, #150e11 75%);
+    display: grid; place-items: center;
+    transition: transform 80ms ease;
+  }
+  .recbtn:active { transform: scale(0.95); }
+  .recbtn .dot {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: var(--accent);
+    transition: border-radius 160ms ease, width 160ms ease, height 160ms ease;
+  }
+  .recbtn.armed { border-color: rgba(255, 93, 93, 0.6); box-shadow: 0 0 28px rgba(255, 93, 93, 0.25); }
+  .recbtn.armed .dot { border-radius: 6px; width: 26px; height: 26px; }
+  .sidebtn {
+    appearance: none;
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: #1d212b;
+    color: var(--ink);
+    font-size: 17px;
+    display: none;
+    place-items: center;
+  }
+  .sidebtn.show { display: grid; }
+  .timer {
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    font-size: 30px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    min-height: 36px;
+  }
+  .timer .st { color: var(--muted); font-size: 13px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; display: block; }
+  .timer.rec { color: var(--accent); }
+
+  canvas.wave {
+    width: 100%;
+    height: 110px;
+    display: block;
+    border-radius: 10px;
+    background: #10131a;
+    border: 1px solid var(--line);
+    touch-action: none;
+    cursor: crosshair;
+  }
+  .transport { display: flex; align-items: center; gap: 12px; }
+  .transport[hidden] { display: none; }
+  .playbtn {
+    appearance: none;
+    width: 46px; height: 46px;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: #1d212b;
+    font-size: 16px;
+    flex: none;
+    display: grid; place-items: center;
+  }
+  .tname {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ttime { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 14px; flex: none; }
+
+  /* list */
+  ul.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  li.row {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  li.row.sel { border-color: rgba(255, 93, 93, 0.45); }
+  .rowmain { flex: 1; min-width: 0; cursor: pointer; }
+  .rname { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rmeta { display: block; color: var(--muted); font-size: 12.5px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .rowbtns { display: flex; gap: 6px; flex: none; }
+  .rowbtns button {
+    appearance: none;
+    width: 34px; height: 34px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: #1d212b;
+    color: var(--muted);
+    font-size: 14px;
+    display: grid; place-items: center;
+  }
+  .rowbtns button:hover { color: var(--ink); }
+  input.rename {
+    font: inherit;
+    font-weight: 600;
+    color: var(--ink);
+    background: #10131a;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    padding: 2px 6px;
+    width: 100%;
+  }
+  .empty { color: var(--muted); text-align: center; font-size: 14px; padding: 12px 0; }
+
+  footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    color: var(--muted);
+    font-size: 12.5px;
+    flex-wrap: wrap;
+  }
+  footer button {
+    appearance: none;
+    border: 1px solid var(--line);
+    background: #1d212b;
+    color: var(--ink);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 12.5px;
+    display: none;
+  }
+  footer button.show { display: inline-block; }
+  .hint { color: var(--muted); font-size: 12.5px; text-align: center; display: none; }
+  .hint.show { display: block; }
+  .toast {
+    position: fixed;
+    left: 50%; bottom: calc(env(safe-area-inset-bottom) + 18px);
+    transform: translateX(-50%);
+    background: #22262f;
+    border: 1px solid var(--line);
+    color: var(--ink);
+    padding: 10px 16px;
+    border-radius: 10px;
+    font-size: 14px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 200ms ease;
+    max-width: min(90vw, 480px);
+    text-align: center;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Recorder</h1>
+
+  <section class="deck">
+    <div class="timer" id="timer"><span class="st" id="timerLabel">ready</span><span id="timerText">0:00</span></div>
+    <div class="recrow">
+      <button class="sidebtn" id="pauseBtn" title="Pause recording" aria-label="Pause recording">❚❚</button>
+      <button class="recbtn" id="recBtn" title="Record" aria-label="Record"><span class="dot"></span></button>
+      <span class="sidebtn" aria-hidden="true"></span>
+    </div>
+    <canvas class="wave" id="wave"></canvas>
+    <div class="transport" id="transport" hidden>
+      <button class="playbtn" id="playBtn" aria-label="Play">▶</button>
+      <span class="tname" id="tname"></span>
+      <span class="ttime" id="ttime">0:00 / 0:00</span>
+    </div>
+  </section>
+
+  <ul class="list" id="list"></ul>
+  <div class="empty" id="empty" hidden>no recordings yet</div>
+
+  <div class="hint" id="iosHint">On iOS, add to Home Screen (Share → Add to Home Screen) for more reliable recording with the screen off.</div>
+
+  <footer>
+    <span id="storageInfo"></span>
+    <button id="installBtn">Install app</button>
+  </footer>
+</main>
+
+<div class="toast" id="toast"></div>
+<audio id="player" playsinline preload="metadata"></audio>
+
+<script>
+'use strict';
+
+/* ---------- tiny helpers ---------- */
+
+const $ = (id) => document.getElementById(id);
+const toastEl = $('toast');
+let toastTimer = null;
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 3200);
+}
+
+function fmtTime(s) {
+  if (!isFinite(s) || s < 0) s = 0;
+  s = Math.floor(s);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+           : `${m}:${String(sec).padStart(2, '0')}`;
+}
+function fmtSize(b) {
+  if (!b) return '0 KB';
+  if (b >= 1 << 20) return (b / (1 << 20)).toFixed(1) + ' MB';
+  return Math.max(1, Math.round(b / 1024)) + ' KB';
+}
+function fmtDate(t) {
+  return new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+function defaultName(t) {
+  const d = new Date(t);
+  const p = (n) => String(n).padStart(2, '0');
+  return `Recording ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}${p(d.getMinutes())}`;
+}
+function extFor(mime) {
+  if (mime.includes('mp4')) return 'm4a';
+  if (mime.includes('ogg')) return 'ogg';
+  return 'webm';
+}
+
+/* ---------- IndexedDB ---------- */
+
+let dbPromise = null;
+function db() {
+  if (!dbPromise) {
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open('recorder-db', 1);
+      req.onupgradeneeded = () => {
+        const d = req.result;
+        d.createObjectStore('recordings', { keyPath: 'id' });
+        d.createObjectStore('chunks', { keyPath: ['recId', 'seq'] });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  return dbPromise;
+}
+async function tx(store, mode, fn) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const t = d.transaction(store, mode);
+    const req = fn(t.objectStore(store));
+    t.oncomplete = () => resolve(req && req.result);
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error);
+  });
+}
+const putRecording = (r) => tx('recordings', 'readwrite', (s) => s.put(r));
+const deleteRecording = (id) => tx('recordings', 'readwrite', (s) => s.delete(id));
+const getAllRecordings = () => tx('recordings', 'readonly', (s) => s.getAll());
+const putChunk = (recId, seq, data) => tx('chunks', 'readwrite', (s) => s.put({ recId, seq, data }));
+const chunkRange = (recId) => IDBKeyRange.bound([recId, -Infinity], [recId, Infinity]);
+const getChunks = (recId) => tx('chunks', 'readonly', (s) => s.getAll(chunkRange(recId)));
+async function deleteChunks(recId) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const t = d.transaction('chunks', 'readwrite');
+    t.objectStore('chunks').delete(chunkRange(recId));
+    t.oncomplete = resolve;
+    t.onerror = () => reject(t.error);
+  });
+}
+
+/* ---------- app state ---------- */
+
+let recordings = [];          // in-memory copy, newest first
+let current = null;           // selected recording row
+let currentUrl = null;        // object URL for the <audio>
+let decoded = null;           // { data: Float32Array, sampleRate, duration } for current
+let peakCache = null;         // { width, mins, maxs } derived from decoded
+let playing = false;
+
+const rec = {
+  active: false, paused: false,
+  id: null, mime: '', seq: 0, startedAt: 0,
+  accMs: 0, lastResume: 0,
+  writes: [],
+  stream: null, recorder: null,
+  ctx: null, analyser: null, keepAlive: null,
+};
+
+const player = $('player');
+const waveCanvas = $('wave');
+const waveCtx = waveCanvas.getContext('2d');
+let livePeaks = [];
+
+/* ---------- recording ---------- */
+
+function pickMime() {
+  const cands = [
+    'audio/webm;codecs=opus', 'audio/webm',
+    'audio/mp4;codecs=mp4a.40.2', 'audio/mp4',
+    'audio/ogg;codecs=opus',
+  ];
+  for (const c of cands) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(c)) return c;
+  }
+  return '';
+}
+
+function recElapsedMs() {
+  return rec.accMs + (rec.active && !rec.paused ? performance.now() - rec.lastResume : 0);
+}
+
+async function startRecording() {
+  if (rec.active) return;
+  if (!window.MediaRecorder) { toast('MediaRecorder is not supported in this browser'); return; }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    toast('Microphone access denied');
+    return;
+  }
+
+  const mime = pickMime();
+  let recorder;
+  try {
+    recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+  } catch (e) {
+    stream.getTracks().forEach((t) => t.stop());
+    toast('Could not start recorder: ' + e.message);
+    return;
+  }
+
+  rec.active = true;
+  rec.paused = false;
+  rec.id = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  rec.mime = recorder.mimeType || mime || 'audio/webm';
+  rec.seq = 0;
+  rec.startedAt = Date.now();
+  rec.accMs = 0;
+  rec.lastResume = performance.now();
+  rec.writes = [];
+  rec.stream = stream;
+  rec.recorder = recorder;
+
+  // Pending row written up-front so an interrupted session can be recovered on next load.
+  await putRecording({
+    id: rec.id, name: defaultName(rec.startedAt), mime: rec.mime,
+    createdAt: rec.startedAt, duration: null, size: 0, blob: null, pending: true,
+  }).catch(() => {});
+
+  // WebAudio graph: analyser for the live waveform, plus a looping silent buffer
+  // routed to the output — an active output stream keeps the audio session alive
+  // in the background / behind a locked screen far more reliably than capture alone.
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    await ctx.resume().catch(() => {});
+    const src = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    src.connect(analyser);
+    const silence = ctx.createBufferSource();
+    silence.buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    silence.loop = true;
+    silence.connect(ctx.destination);
+    silence.start();
+    ctx.addEventListener('statechange', () => {
+      // iOS reports 'interrupted' (a non-standard state) on calls/Siri/lock; try to claw back.
+      if (rec.active && ctx.state !== 'running' && ctx.state !== 'closed') ctx.resume().catch(() => {});
+    });
+    rec.ctx = ctx;
+    rec.analyser = analyser;
+    rec.keepAlive = silence;
+  } catch (e) { /* recording still works without the graph */ }
+
+  recorder.ondataavailable = (e) => {
+    if (e.data && e.data.size) {
+      const p = putChunk(rec.id, rec.seq++, e.data).catch(() => {});
+      rec.writes.push(p);
+    }
+  };
+  recorder.onerror = () => { if (rec.active) stopRecording(); };
+  recorder.onstop = () => finalizeRecording();
+  stream.getTracks().forEach((t) => t.addEventListener('ended', () => { if (rec.active) stopRecording(); }));
+
+  recorder.start(1000); // 1 s timeslices: at most ~1 s of audio is ever lost to a crash
+
+  acquireWakeLock();
+  setRecordingMediaSession();
+  livePeaks = [];
+  setUiRecording();
+}
+
+function pauseResumeRecording() {
+  if (!rec.active || !rec.recorder) return;
+  if (rec.paused) {
+    rec.recorder.resume();
+    rec.paused = false;
+    rec.lastResume = performance.now();
+  } else {
+    rec.recorder.pause();
+    rec.paused = true;
+    rec.accMs += performance.now() - rec.lastResume;
+  }
+  try { navigator.mediaSession.playbackState = rec.paused ? 'paused' : 'playing'; } catch (e) {}
+  setUiRecording();
+}
+
+function stopRecording() {
+  if (!rec.active || !rec.recorder) return;
+  if (!rec.paused) rec.accMs += performance.now() - rec.lastResume;
+  rec.active = false;
+  try { rec.recorder.stop(); } catch (e) { finalizeRecording(); }
+}
+
+let finalized = false;
+async function finalizeRecording() {
+  if (finalized) return;
+  finalized = true;
+  const { id, mime, accMs, startedAt } = rec;
+
+  try { rec.stream?.getTracks().forEach((t) => t.stop()); } catch (e) {}
+  try { rec.keepAlive?.stop(); } catch (e) {}
+  try { rec.ctx?.close(); } catch (e) {}
+  rec.stream = rec.recorder = rec.ctx = rec.analyser = rec.keepAlive = null;
+  releaseWakeLock();
+  clearMediaSession();
+  setUiIdle();
+
+  try {
+    await Promise.all(rec.writes);
+    const chunks = await getChunks(id);
+    if (!chunks.length) {
+      await deleteRecording(id);
+      toast('Nothing was recorded');
+    } else {
+      chunks.sort((a, b) => a.seq - b.seq);
+      const blob = new Blob(chunks.map((c) => c.data), { type: mime });
+      await putRecording({
+        id, name: defaultName(startedAt), mime, createdAt: startedAt,
+        duration: accMs / 1000, size: blob.size, blob, pending: false,
+      });
+      await deleteChunks(id);
+      requestPersistence();
+      await refreshList();
+      const row = recordings.find((r) => r.id === id);
+      if (row) selectRecording(row);
+    }
+  } catch (e) {
+    toast('Failed to save recording: ' + e.message);
+  }
+  finalized = false;
+}
+
+/* Recover recordings whose tab died mid-capture: pending rows with orphaned chunks. */
+async function recoverPending() {
+  const all = await getAllRecordings();
+  for (const row of all) {
+    if (!row.pending) continue;
+    const chunks = await getChunks(row.id);
+    if (!chunks.length) { await deleteRecording(row.id); continue; }
+    chunks.sort((a, b) => a.seq - b.seq);
+    const blob = new Blob(chunks.map((c) => c.data), { type: row.mime });
+    let duration = null;
+    try { duration = (await decodeBlob(blob)).duration; } catch (e) {}
+    await putRecording({
+      ...row, name: row.name + ' (recovered)', blob, size: blob.size, duration, pending: false,
+    });
+    await deleteChunks(row.id);
+    toast('Recovered an interrupted recording');
+  }
+}
+
+/* ---------- wake lock + media session ---------- */
+
+let wakeLock = null;
+async function acquireWakeLock() {
+  try {
+    wakeLock = await navigator.wakeLock?.request('screen');
+    wakeLock?.addEventListener('release', () => { wakeLock = null; });
+  } catch (e) {}
+}
+function releaseWakeLock() {
+  try { wakeLock?.release(); } catch (e) {}
+  wakeLock = null;
+}
+
+function setActionSafe(action, handler) {
+  try { navigator.mediaSession.setActionHandler(action, handler); } catch (e) {}
+}
+function setRecordingMediaSession() {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({ title: 'Recording…', artist: 'Recorder' });
+    navigator.mediaSession.playbackState = 'playing';
+  } catch (e) {}
+  setActionSafe('pause', () => { if (rec.active && !rec.paused) pauseResumeRecording(); });
+  setActionSafe('play', () => { if (rec.active && rec.paused) pauseResumeRecording(); });
+  setActionSafe('stop', () => stopRecording());
+  setActionSafe('seekbackward', null);
+  setActionSafe('seekforward', null);
+  setActionSafe('seekto', null);
+}
+function setPlaybackMediaSession() {
+  if (!('mediaSession' in navigator) || !current) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({ title: current.name, artist: 'Recorder' });
+  } catch (e) {}
+  setActionSafe('play', () => player.play());
+  setActionSafe('pause', () => player.pause());
+  setActionSafe('stop', () => { player.pause(); seekTo(0); });
+  setActionSafe('seekbackward', (d) => seekTo(playPosition() - (d.seekOffset || 10)));
+  setActionSafe('seekforward', (d) => seekTo(playPosition() + (d.seekOffset || 10)));
+  setActionSafe('seekto', (d) => { if (d.seekTime != null) seekTo(d.seekTime); });
+}
+function clearMediaSession() {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = null;
+    navigator.mediaSession.playbackState = 'none';
+  } catch (e) {}
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  if (rec.active) {
+    acquireWakeLock();
+    if (rec.ctx && rec.ctx.state !== 'running') rec.ctx.resume().catch(() => {});
+  }
+});
+window.addEventListener('pageshow', () => {
+  if (rec.active && rec.ctx && rec.ctx.state !== 'running') rec.ctx.resume().catch(() => {});
+});
+window.addEventListener('beforeunload', (e) => {
+  if (rec.active) { e.preventDefault(); e.returnValue = ''; }
+});
+
+/* ---------- decode + waveform ---------- */
+
+async function decodeBlob(blob) {
+  // Decode at a low sample rate: plenty for peaks, and an hour of audio stays
+  // ~115 MB instead of ~700 MB at 48 kHz.
+  const buf = await blob.arrayBuffer();
+  let audioBuf;
+  try {
+    const off = new OfflineAudioContext(1, 8000, 8000);
+    audioBuf = await off.decodeAudioData(buf.slice(0));
+  } catch (e) {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    audioBuf = await ctx.decodeAudioData(buf.slice(0));
+    ctx.close();
+  }
+  return { data: audioBuf.getChannelData(0), sampleRate: audioBuf.sampleRate, duration: audioBuf.duration };
+}
+
+function computePeaks(width) {
+  if (!decoded || width < 2) return null;
+  const { data } = decoded;
+  const mins = new Float32Array(width), maxs = new Float32Array(width);
+  const per = data.length / width;
+  for (let i = 0; i < width; i++) {
+    let mn = 0, mx = 0;
+    const s = Math.floor(i * per), e = Math.min(data.length, Math.max(s + 1, Math.floor((i + 1) * per)));
+    for (let j = s; j < e; j++) {
+      const v = data[j];
+      if (v < mn) mn = v;
+      if (v > mx) mx = v;
+    }
+    mins[i] = mn; maxs[i] = mx;
+  }
+  return { width, mins, maxs };
+}
+
+function sizeCanvas() {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.round(waveCanvas.clientWidth * dpr);
+  const h = Math.round(waveCanvas.clientHeight * dpr);
+  if (w && (waveCanvas.width !== w || waveCanvas.height !== h)) {
+    waveCanvas.width = w; waveCanvas.height = h;
+    peakCache = null;
+  }
+  return dpr;
+}
+
+function drawWave() {
+  sizeCanvas();
+  const w = waveCanvas.width, h = waveCanvas.height, mid = h / 2;
+  waveCtx.clearRect(0, 0, w, h);
+  if (!w) return;
+
+  waveCtx.fillStyle = 'rgba(255,255,255,0.06)';
+  waveCtx.fillRect(0, mid - 0.5, w, 1);
+
+  if (rec.active) {
+    // live rolling waveform, right-aligned
+    const n = livePeaks.length;
+    waveCtx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#ff5d5d';
+    for (let i = 0; i < n; i++) {
+      const x = w - n + i;
+      if (x < 0) continue;
+      const p = Math.min(1, livePeaks[i] * 1.4);
+      const bh = Math.max(2, p * (h - 8));
+      waveCtx.fillRect(x, mid - bh / 2, 1, bh);
+    }
+    return;
+  }
+
+  if (!decoded) return;
+  if (!peakCache || peakCache.width !== w) peakCache = computePeaks(w);
+  if (!peakCache) return;
+
+  const dur = decoded.duration || 1;
+  const playedX = Math.round(Math.min(1, playPosition() / dur) * w);
+  const scale = (h - 8) / 2;
+  for (let x = 0; x < w; x++) {
+    const mn = peakCache.mins[x] * 1.4, mx = peakCache.maxs[x] * 1.4;
+    const top = mid - Math.min(1, mx) * scale;
+    const bh = Math.max(2, (Math.min(1, mx) - Math.max(-1, mn)) * scale);
+    waveCtx.fillStyle = x <= playedX ? '#ff5d5d' : '#3a445c';
+    waveCtx.fillRect(x, top, 1, bh);
+  }
+  waveCtx.fillStyle = '#e9edf5';
+  waveCtx.fillRect(playedX, 2, 1.5, h - 4);
+}
+
+/* ---------- playback ---------- */
+
+function playPosition() {
+  return isFinite(player.currentTime) ? player.currentTime : 0;
+}
+function seekTo(t) {
+  if (!decoded) return;
+  const dur = decoded.duration;
+  player.currentTime = Math.min(Math.max(0, t), Math.max(0, dur - 0.05));
+  updateTransport();
+}
+
+player.addEventListener('loadedmetadata', () => {
+  // Chrome gives MediaRecorder webm blobs an Infinity duration, which breaks
+  // seeking; forcing a seek past the end makes it compute the real one.
+  if (player.duration === Infinity) {
+    const fix = () => { player.removeEventListener('timeupdate', fix); player.currentTime = 0; };
+    player.addEventListener('timeupdate', fix);
+    player.currentTime = 1e101;
+  }
+});
+player.addEventListener('play', () => {
+  playing = true;
+  $('playBtn').textContent = '❚❚';
+  try { navigator.mediaSession.playbackState = 'playing'; } catch (e) {}
+});
+player.addEventListener('pause', () => {
+  playing = false;
+  $('playBtn').textContent = '▶';
+  try { if (!rec.active) navigator.mediaSession.playbackState = 'paused'; } catch (e) {}
+});
+player.addEventListener('ended', () => { playing = false; $('playBtn').textContent = '▶'; });
+
+$('playBtn').addEventListener('click', () => {
+  if (!current) return;
+  if (player.paused) player.play().catch((e) => toast('Playback failed: ' + e.message));
+  else player.pause();
+});
+
+async function selectRecording(row) {
+  current = row;
+  decoded = null;
+  peakCache = null;
+  if (currentUrl) URL.revokeObjectURL(currentUrl);
+  currentUrl = URL.createObjectURL(row.blob);
+  player.src = currentUrl;
+  $('transport').hidden = false;
+  $('tname').textContent = row.name;
+  $('ttime').textContent = '0:00 / ' + fmtTime(row.duration || 0);
+  renderList();
+  try {
+    decoded = await decodeBlob(row.blob);
+    if (current !== row) return; // user moved on mid-decode
+    if (row.duration == null || Math.abs(row.duration - decoded.duration) > 1) {
+      row.duration = decoded.duration;
+      putRecording(row).catch(() => {});
+      renderList();
+    }
+    setPlaybackMediaSession();
+  } catch (e) {
+    toast('Could not decode audio for the waveform');
+  }
+}
+
+function updateTransport() {
+  if (!current) return;
+  const dur = decoded ? decoded.duration : (current.duration || 0);
+  $('ttime').textContent = fmtTime(playPosition()) + ' / ' + fmtTime(dur);
+  if (decoded && 'mediaSession' in navigator && playing) {
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: decoded.duration, position: Math.min(playPosition(), decoded.duration), playbackRate: 1,
+      });
+    } catch (e) {}
+  }
+}
+
+/* seek by tap / drag on the waveform */
+let scrubbing = false;
+function waveSeek(ev) {
+  if (rec.active || !decoded) return;
+  const r = waveCanvas.getBoundingClientRect();
+  const frac = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
+  seekTo(frac * decoded.duration);
+}
+waveCanvas.addEventListener('pointerdown', (ev) => {
+  if (rec.active || !decoded) return;
+  scrubbing = true;
+  waveCanvas.setPointerCapture(ev.pointerId);
+  waveSeek(ev);
+});
+waveCanvas.addEventListener('pointermove', (ev) => { if (scrubbing) waveSeek(ev); });
+waveCanvas.addEventListener('pointerup', () => { scrubbing = false; });
+waveCanvas.addEventListener('pointercancel', () => { scrubbing = false; });
+
+/* ---------- list ---------- */
+
+async function refreshList() {
+  const all = await getAllRecordings();
+  recordings = all.filter((r) => !r.pending && r.blob).sort((a, b) => b.createdAt - a.createdAt);
+  renderList();
+  updateStorageInfo();
+}
+
+function renderList() {
+  const ul = $('list');
+  ul.textContent = '';
+  $('empty').hidden = recordings.length > 0;
+  for (const row of recordings) {
+    const li = document.createElement('li');
+    li.className = 'row' + (current && current.id === row.id ? ' sel' : '');
+
+    const main = document.createElement('div');
+    main.className = 'rowmain';
+    const name = document.createElement('span');
+    name.className = 'rname';
+    name.textContent = row.name;
+    const meta = document.createElement('span');
+    meta.className = 'rmeta';
+    meta.textContent = `${fmtDate(row.createdAt)} · ${row.duration != null ? fmtTime(row.duration) : '?:??'} · ${fmtSize(row.size)}`;
+    main.append(name, meta);
+    main.addEventListener('click', () => selectRecording(row));
+
+    const btns = document.createElement('div');
+    btns.className = 'rowbtns';
+
+    const renameBtn = document.createElement('button');
+    renameBtn.title = 'Rename';
+    renameBtn.setAttribute('aria-label', 'Rename');
+    renameBtn.textContent = '✎';
+    renameBtn.addEventListener('click', (e) => { e.stopPropagation(); startRename(row, name); });
+
+    const dlBtn = document.createElement('button');
+    dlBtn.title = 'Download';
+    dlBtn.setAttribute('aria-label', 'Download');
+    dlBtn.textContent = '↓';
+    dlBtn.addEventListener('click', (e) => { e.stopPropagation(); download(row); });
+
+    const delBtn = document.createElement('button');
+    delBtn.title = 'Delete';
+    delBtn.setAttribute('aria-label', 'Delete');
+    delBtn.textContent = '✕';
+    delBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Delete "${row.name}"?`)) return;
+      await deleteRecording(row.id);
+      await deleteChunks(row.id).catch(() => {});
+      if (current && current.id === row.id) {
+        current = null; decoded = null; peakCache = null;
+        player.removeAttribute('src'); player.load();
+        $('transport').hidden = true;
+      }
+      refreshList();
+    });
+
+    btns.append(renameBtn, dlBtn, delBtn);
+    li.append(main, btns);
+    ul.append(li);
+  }
+}
+
+function startRename(row, nameEl) {
+  const input = document.createElement('input');
+  input.className = 'rename';
+  input.value = row.name;
+  input.maxLength = 120;
+  nameEl.replaceWith(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const commit = async (save) => {
+    if (done) return;
+    done = true;
+    const v = input.value.trim();
+    if (save && v && v !== row.name) {
+      row.name = v;
+      await putRecording(row).catch(() => {});
+      if (current && current.id === row.id) $('tname').textContent = v;
+    }
+    renderList();
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') commit(true);
+    else if (e.key === 'Escape') commit(false);
+  });
+  input.addEventListener('blur', () => commit(true));
+}
+
+function download(row) {
+  const a = document.createElement('a');
+  const url = URL.createObjectURL(row.blob);
+  a.href = url;
+  a.download = row.name.replace(/[\\/:*?"<>|]+/g, '_') + '.' + extFor(row.mime);
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+/* ---------- storage ---------- */
+
+let persistenceRequested = false;
+async function requestPersistence() {
+  if (persistenceRequested || !navigator.storage?.persist) return;
+  persistenceRequested = true;
+  try { await navigator.storage.persist(); } catch (e) {}
+  updateStorageInfo();
+}
+async function updateStorageInfo() {
+  const bits = [];
+  const total = recordings.reduce((s, r) => s + (r.size || 0), 0);
+  bits.push(`${recordings.length} recording${recordings.length === 1 ? '' : 's'} · ${fmtSize(total)}`);
+  try {
+    if (await navigator.storage?.persisted?.()) bits.push('persistent storage');
+  } catch (e) {}
+  $('storageInfo').textContent = bits.join(' · ');
+}
+
+/* ---------- UI plumbing ---------- */
+
+$('recBtn').addEventListener('click', () => (rec.active ? stopRecording() : startRecording()));
+$('pauseBtn').addEventListener('click', pauseResumeRecording);
+
+function setUiRecording() {
+  $('recBtn').classList.add('armed');
+  $('recBtn').title = 'Stop';
+  $('pauseBtn').classList.add('show');
+  $('pauseBtn').textContent = rec.paused ? '▶' : '❚❚';
+  $('pauseBtn').title = rec.paused ? 'Resume recording' : 'Pause recording';
+  $('timer').classList.add('rec');
+  $('timerLabel').textContent = rec.paused ? 'paused' : 'recording';
+  $('transport').hidden = true;
+}
+function setUiIdle() {
+  $('recBtn').classList.remove('armed');
+  $('recBtn').title = 'Record';
+  $('pauseBtn').classList.remove('show');
+  $('timer').classList.remove('rec');
+  $('timerLabel').textContent = 'ready';
+  $('timerText').textContent = '0:00';
+  $('transport').hidden = !current;
+}
+
+const liveBuf = new Float32Array(2048);
+function frame() {
+  if (rec.active) {
+    $('timerText').textContent = fmtTime(recElapsedMs() / 1000);
+    if (rec.analyser && !rec.paused) {
+      rec.analyser.getFloatTimeDomainData(liveBuf);
+      let peak = 0;
+      for (let i = 0; i < liveBuf.length; i++) {
+        const v = Math.abs(liveBuf[i]);
+        if (v > peak) peak = v;
+      }
+      livePeaks.push(peak);
+      const max = waveCanvas.width || 640;
+      if (livePeaks.length > max) livePeaks.splice(0, livePeaks.length - max);
+    }
+  } else if (current) {
+    updateTransport();
+  }
+  drawWave();
+  requestAnimationFrame(frame);
+}
+
+window.addEventListener('resize', () => { peakCache = null; });
+
+/* ---------- PWA install ---------- */
+
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  // Scope pinned to this one page so the worker never touches the other apps
+  // that live alongside it on this origin.
+  navigator.serviceWorker.register('./recorder.sw.js', { scope: './recorder.html' }).catch(() => {});
+}
+
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  $('installBtn').classList.add('show');
+});
+$('installBtn').addEventListener('click', async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  await installPrompt.userChoice.catch(() => {});
+  installPrompt = null;
+  $('installBtn').classList.remove('show');
+});
+window.addEventListener('appinstalled', () => {
+  installPrompt = null;
+  $('installBtn').classList.remove('show');
+});
+
+const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+if (isIos && !standalone) $('iosHint').classList.add('show');
+
+/* ---------- boot ---------- */
+
+(async () => {
+  try { await recoverPending(); } catch (e) {}
+  await refreshList().catch(() => {});
+  if (recordings.length) {
+    requestPersistence();
+    selectRecording(recordings[0]);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
