@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0f1115" />
+<meta name="description" content="A text editor that ciphers every character as you type — you never see your own plaintext." />
+<title>Veil</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --ink: #e9edf5;
+    --muted: #8993a7;
+    --accent: #a78bfa;
+    --warn: #f0a35e;
+    --line: rgba(255, 255, 255, 0.08);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100svh;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    -webkit-tap-highlight-color: transparent;
+  }
+  #pad {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 0;
+    margin: 0;
+    padding: 20px clamp(14px, 4vw, 28px);
+    border: 0;
+    outline: 0;
+    resize: none;
+    background: transparent;
+    color: var(--ink);
+    caret-color: var(--accent);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 16px;
+    line-height: 1.65;
+    letter-spacing: 0.01em;
+    word-break: break-word;
+  }
+  #pad::placeholder { color: rgba(137, 147, 167, 0.55); }
+  #pad.revealed {
+    color: var(--warn);
+    background: rgba(240, 163, 94, 0.05);
+  }
+
+  .bar {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 10px clamp(10px, 3vw, 20px);
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .brand {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-right: 4px;
+  }
+  .spacer { flex: 1 1 auto; }
+  .count {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    padding: 0 4px;
+  }
+  button {
+    appearance: none;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 7px 12px;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: color 120ms ease, background 120ms ease, border-color 120ms ease, transform 80ms ease;
+  }
+  button:hover { color: var(--ink); }
+  button:active { transform: scale(0.97); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button[disabled] { opacity: 0.4; cursor: default; }
+  .modes, .actions { display: flex; align-items: center; gap: 6px; }
+  .chip[aria-pressed="true"] {
+    color: #14101f;
+    background: var(--accent);
+    border-color: transparent;
+  }
+  #reveal[aria-pressed="true"] {
+    color: #1c1206;
+    background: var(--warn);
+    border-color: transparent;
+  }
+  #clear.arm { color: var(--warn); border-color: var(--warn); }
+
+  @media (max-width: 520px) {
+    /* Two deliberate rows instead of a ragged wrap: ciphers, then actions. */
+    .bar { gap: 8px 6px; padding-left: 12px; padding-right: 12px; }
+    .brand { flex: 1 1 auto; }
+    .spacer { display: none; }
+    .actions { flex: 1 1 100%; justify-content: flex-end; }
+    .actions .count { margin-right: auto; }
+    button { padding: 8px 12px; }
+  }
+</style>
+</head>
+<body>
+  <textarea id="pad"
+    placeholder="start typing — it ciphers as you go"
+    spellcheck="false"
+    autocomplete="off"
+    autocapitalize="off"
+    autocorrect="off"
+    aria-label="Ciphered text"></textarea>
+
+  <footer class="bar">
+    <span class="brand">veil</span>
+    <div class="modes" role="group" aria-label="Cipher">
+      <button class="chip" type="button" data-mode="rot13" aria-pressed="true">rot13</button>
+      <button class="chip" type="button" data-mode="atbash" aria-pressed="false">atbash</button>
+      <button class="chip" type="button" data-mode="rot47" aria-pressed="false">rot47</button>
+    </div>
+    <span class="spacer"></span>
+    <div class="actions">
+      <span class="count" id="count">0</span>
+      <button id="reveal" type="button" aria-pressed="false" title="Show the plaintext (read-only)">reveal</button>
+      <button id="copy" type="button" title="Copy what's on screen">copy</button>
+      <button id="clear" type="button" title="Erase everything">clear</button>
+    </div>
+  </footer>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------------------------------------------------------------------
+  // Ciphers. Every one must be an involution (cipher(cipher(x)) === x) and
+  // map one character to exactly one character. That is what lets the
+  // textarea hold nothing but ciphertext: encoding and decoding are the
+  // same call, offsets never shift, so the caret, selection, scroll
+  // position and the browser's own undo stack all stay valid.
+  // ---------------------------------------------------------------------
+  const rot = (c, base, span, by) => String.fromCharCode(base + ((c - base + by) % span));
+
+  const CIPHERS = {
+    rot13: (s) => s.replace(/[a-zA-Z0-9]/g, (ch) => {
+      const c = ch.charCodeAt(0);
+      if (c >= 97) return rot(c, 97, 26, 13);       // a-z
+      if (c >= 65) return rot(c, 65, 26, 13);       // A-Z
+      return rot(c, 48, 10, 5);                     // 0-9
+    }),
+    atbash: (s) => s.replace(/[a-zA-Z0-9]/g, (ch) => {
+      const c = ch.charCodeAt(0);
+      if (c >= 97) return String.fromCharCode(219 - c);  // a<->z
+      if (c >= 65) return String.fromCharCode(155 - c);  // A<->Z
+      return String.fromCharCode(105 - c);               // 0<->9
+    }),
+    // ROT47 over printable ASCII, so punctuation is scrambled too. Space
+    // and newline are outside the range and pass through untouched.
+    rot47: (s) => s.replace(/[!-~]/g, (ch) => rot(ch.charCodeAt(0), 33, 94, 47)),
+  };
+
+  const STORE = 'veil.v1';
+  const pad = document.getElementById('pad');
+  const countEl = document.getElementById('count');
+  const revealBtn = document.getElementById('reveal');
+  const copyBtn = document.getElementById('copy');
+  const clearBtn = document.getElementById('clear');
+  const chips = [...document.querySelectorAll('.chip')];
+
+  let mode = 'rot13';
+  let revealed = false;
+  let composing = false;
+
+  const code = (s) => CIPHERS[mode](s);
+
+  // --- persistence ------------------------------------------------------
+  // Only ever stores the ciphertext. These are toy ciphers, so treat this
+  // as obfuscation, not security.
+  function save() {
+    if (revealed) return;
+    try {
+      localStorage.setItem(STORE, JSON.stringify({ mode, text: pad.value }));
+    } catch (_) { /* private mode, quota — nothing to do */ }
+  }
+
+  function restore() {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(STORE) || 'null'); } catch (_) {}
+    if (saved && typeof saved.text === 'string') pad.value = saved.text;
+    if (saved && CIPHERS[saved.mode]) mode = saved.mode;
+    chips.forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.mode === mode)));
+    updateCount();
+  }
+
+  function updateCount() {
+    countEl.textContent = String(pad.value.length);
+  }
+
+  // --- input: cipher every character on its way in ----------------------
+  function insertCiphered(text) {
+    if (!text) return;
+    let ok = false;
+    try {
+      ok = document.execCommand('insertText', false, text);  // keeps native undo
+    } catch (_) { ok = false; }
+    if (!ok) {
+      pad.setRangeText(text, pad.selectionStart, pad.selectionEnd, 'end');
+      pad.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }
+
+  pad.addEventListener('beforeinput', (e) => {
+    if (composing || revealed) return;
+    const t = e.inputType;
+    let data = null;
+    if (t === 'insertText' || t === 'insertReplacementText') {
+      data = e.data;
+      if (data == null && e.dataTransfer) data = e.dataTransfer.getData('text/plain');
+    } else if (t === 'insertFromPaste' || t === 'insertFromPasteAsQuotation' || t === 'insertFromDrop') {
+      data = e.dataTransfer ? e.dataTransfer.getData('text/plain') : e.data;
+    }
+    // Deletions, line breaks and undo/redo need no help: they move
+    // ciphertext around, and '\n' ciphers to itself.
+    if (data == null || data === '') return;
+    e.preventDefault();
+    insertCiphered(code(data));
+  });
+
+  // Paste has its own event in every browser; beforeinput's dataTransfer is
+  // less reliable, so intercept here first.
+  pad.addEventListener('paste', (e) => {
+    if (revealed) return;
+    const text = (e.clipboardData || window.clipboardData)?.getData('text');
+    if (text == null) return;
+    e.preventDefault();
+    insertCiphered(code(text));
+  });
+
+  // IME / predictive keyboards compose in place; leave the composition
+  // alone and cipher the result once it lands.
+  pad.addEventListener('compositionstart', () => { composing = true; });
+  pad.addEventListener('compositionend', (e) => {
+    composing = false;
+    const data = e.data || '';
+    if (!data) return;
+    setTimeout(() => {
+      const end = pad.selectionStart;
+      const start = end - data.length;
+      if (start < 0 || pad.value.slice(start, end) !== data) return;
+      pad.setRangeText(code(data), start, end, 'end');
+      updateCount();
+      save();
+    }, 0);
+  });
+
+  pad.addEventListener('input', () => { updateCount(); save(); });
+
+  // --- reveal -----------------------------------------------------------
+  function setReveal(on) {
+    if (on === revealed) return;
+    const { selectionStart: s, selectionEnd: e, scrollTop } = pad;
+    revealed = on;
+    pad.value = code(pad.value);          // involution: same call both ways
+    pad.readOnly = on;
+    pad.classList.toggle('revealed', on);
+    pad.setSelectionRange(s, e);
+    pad.scrollTop = scrollTop;
+    revealBtn.setAttribute('aria-pressed', String(on));
+    revealBtn.textContent = on ? 'hide' : 'reveal';
+    chips.forEach((c) => { c.disabled = on; });
+  }
+
+  revealBtn.addEventListener('click', () => setReveal(!revealed));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && revealed) { setReveal(false); pad.focus(); }
+  });
+
+  // --- mode -------------------------------------------------------------
+  chips.forEach((chip) => chip.addEventListener('click', () => {
+    const next = chip.dataset.mode;
+    if (next === mode || revealed) return;
+    const plain = code(pad.value);        // decode with the outgoing cipher
+    mode = next;
+    pad.value = code(plain);              // re-encode with the new one
+    chips.forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.mode === mode)));
+    save();
+    pad.focus();
+  }));
+
+  // --- copy / clear -----------------------------------------------------
+  const timers = new WeakMap();
+  function say(btn, text, ms) {
+    const original = btn.dataset.label || btn.textContent;
+    btn.dataset.label = original;
+    btn.textContent = text;
+    clearTimeout(timers.get(btn));
+    timers.set(btn, setTimeout(() => { btn.textContent = original; }, ms));
+  }
+
+  // Copies exactly what's on screen: ciphertext normally, plaintext while
+  // revealed.
+  copyBtn.addEventListener('click', async () => {
+    const text = pad.value;
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (_) {
+      pad.select();
+      try { document.execCommand('copy'); } catch (__) { say(copyBtn, 'failed', 1400); return; }
+      pad.setSelectionRange(text.length, text.length);
+    }
+    say(copyBtn, 'copied', 1200);
+  });
+
+  let armed = false;
+  clearBtn.addEventListener('click', () => {
+    if (!armed) {
+      if (!pad.value) return;
+      armed = true;
+      clearBtn.classList.add('arm');
+      say(clearBtn, 'sure?', 2600);
+      setTimeout(() => { armed = false; clearBtn.classList.remove('arm'); }, 2600);
+      return;
+    }
+    armed = false;
+    clearBtn.classList.remove('arm');
+    clearTimeout(timers.get(clearBtn));
+    clearBtn.textContent = clearBtn.dataset.label || 'clear';
+    setReveal(false);
+    pad.value = '';
+    updateCount();
+    save();
+    pad.focus();
+  });
+
+  restore();
+  pad.focus();
+})();
+</script>
+</body>
+</html>
