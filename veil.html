@@ -126,6 +126,10 @@
     .actions .count { margin-right: auto; }
     button { padding: 8px 12px; }
   }
+
+  @media (max-width: 380px) {
+    .brand { display: none; }   /* four chips need the whole row */
+  }
 </style>
 </head>
 <body>
@@ -143,6 +147,7 @@
       <button class="chip" type="button" data-mode="rot13" aria-pressed="true">rot13</button>
       <button class="chip" type="button" data-mode="atbash" aria-pressed="false">atbash</button>
       <button class="chip" type="button" data-mode="rot47" aria-pressed="false">rot47</button>
+      <button class="chip" type="button" data-mode="shuffle" aria-pressed="false" title="A fresh random alphabet on every keystroke">shuffle</button>
     </div>
     <span class="spacer"></span>
     <div class="actions">
@@ -166,6 +171,51 @@
   // ---------------------------------------------------------------------
   const rot = (c, base, span, by) => String.fromCharCode(base + ((c - base + by) % span));
 
+  // Shuffle mode's alphabet: a random *involution* — every letter paired
+  // with exactly one other — re-rolled on each keystroke. Pairing rather
+  // than an arbitrary permutation is what keeps decode === encode, so
+  // shuffle behaves like the fixed ciphers everywhere else in the file.
+  const LETTERS = 'abcdefghijklmnopqrstuvwxyz';
+  const DIGITS = '0123456789';
+
+  const rand = (n) => {
+    try { return crypto.getRandomValues(new Uint32Array(1))[0] % n; }
+    catch (_) { return Math.floor(Math.random() * n); }
+  };
+
+  function randomPairing() {
+    const pair = (chars) => {                 // both alphabets are even-sized
+      const a = [...chars];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = rand(i + 1);
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      const out = {};
+      for (let i = 0; i < a.length; i += 2) {
+        out[a[i]] = a[i + 1];
+        out[a[i + 1]] = a[i];
+      }
+      return out;
+    };
+    return { ...pair(LETTERS), ...pair(DIGITS) };
+  }
+
+  let key = randomPairing();
+
+  const keyToString = () => [...LETTERS + DIGITS].map((c) => key[c]).join('');
+
+  function keyFromString(str) {
+    const src = LETTERS + DIGITS;
+    if (typeof str !== 'string' || str.length !== src.length) return null;
+    const k = {};
+    for (let i = 0; i < src.length; i++) {
+      if (!src.includes(str[i])) return null;
+      k[src[i]] = str[i];
+    }
+    for (const c of src) if (k[k[c]] !== c) return null;   // must be an involution
+    return k;
+  }
+
   const CIPHERS = {
     rot13: (s) => s.replace(/[a-zA-Z0-9]/g, (ch) => {
       const c = ch.charCodeAt(0);
@@ -182,6 +232,12 @@
     // ROT47 over printable ASCII, so punctuation is scrambled too. Space
     // and newline are outside the range and pass through untouched.
     rot47: (s) => s.replace(/[!-~]/g, (ch) => rot(ch.charCodeAt(0), 33, 94, 47)),
+    // Keyed by whatever `key` holds right now — see reshuffle().
+    shuffle: (s) => s.replace(/[a-zA-Z0-9]/g, (ch) => {
+      const low = ch.toLowerCase();
+      const to = key[low];
+      return ch === low ? to : to.toUpperCase();
+    }),
   };
 
   const STORE = 'veil.v1';
@@ -202,9 +258,9 @@
   // Only ever stores the ciphertext. These are toy ciphers, so treat this
   // as obfuscation, not security.
   function save() {
-    if (revealed) return;
+    if (revealed || composing) return;
     try {
-      localStorage.setItem(STORE, JSON.stringify({ mode, text: pad.value }));
+      localStorage.setItem(STORE, JSON.stringify({ mode, text: pad.value, key: keyToString() }));
     } catch (_) { /* private mode, quota — nothing to do */ }
   }
 
@@ -213,6 +269,8 @@
     try { saved = JSON.parse(localStorage.getItem(STORE) || 'null'); } catch (_) {}
     if (saved && typeof saved.text === 'string') pad.value = saved.text;
     if (saved && CIPHERS[saved.mode]) mode = saved.mode;
+    const savedKey = saved && keyFromString(saved.key);   // shuffle is unreadable without it
+    if (savedKey) key = savedKey;
     chips.forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.mode === mode)));
     updateCount();
   }
@@ -234,9 +292,72 @@
     }
   }
 
+  // In shuffle mode the alphabet is re-rolled after every edit, so the whole
+  // document churns on each keystroke. Nothing changes length, so the caret,
+  // selection and scroll position survive the rewrite.
+  function reshuffle() {
+    const { selectionStart: s, selectionEnd: e, scrollTop } = pad;
+    const plain = code(pad.value);        // decode with the outgoing alphabet
+    key = randomPairing();
+    pad.value = code(plain);              // re-encode with the new one
+    pad.setSelectionRange(s, e);
+    pad.scrollTop = scrollTop;
+  }
+
+  // Native undo cannot survive that: the browser's saved states are ciphertext
+  // under alphabets that no longer exist, so they'd decode to nonsense. In
+  // shuffle mode only, keep our own stack of plaintext snapshots instead.
+  const undoStack = [];
+  const redoStack = [];
+  const HISTORY_LIMIT = 200;
+
+  function snapshot() {
+    const plain = code(pad.value);
+    if (undoStack[undoStack.length - 1] === plain) return;
+    undoStack.push(plain);
+    if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+    redoStack.length = 0;
+  }
+
+  function step(from, to) {
+    if (!from.length) return;
+    to.push(code(pad.value));
+    const plain = from.pop();
+    const caret = Math.min(pad.selectionStart, plain.length);
+    key = randomPairing();
+    pad.value = code(plain);
+    pad.setSelectionRange(caret, caret);
+    updateCount();
+    save();
+  }
+
+  function resetHistory() {
+    undoStack.length = 0;
+    redoStack.length = 0;
+  }
+
+  pad.addEventListener('keydown', (e) => {
+    if (mode !== 'shuffle' || revealed) return;
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+    const k = e.key.toLowerCase();
+    const undo = k === 'z' && !e.shiftKey;
+    const redo = k === 'y' || (k === 'z' && e.shiftKey);
+    if (!undo && !redo) return;
+    e.preventDefault();
+    step(undo ? undoStack : redoStack, undo ? redoStack : undoStack);
+  });
+
   pad.addEventListener('beforeinput', (e) => {
     if (composing || revealed) return;
     const t = e.inputType;
+    if (t === 'historyUndo' || t === 'historyRedo') {
+      if (mode !== 'shuffle') return;      // native undo is correct elsewhere
+      e.preventDefault();                  // backstop for Edit-menu undo
+      const undo = t === 'historyUndo';
+      step(undo ? undoStack : redoStack, undo ? redoStack : undoStack);
+      return;
+    }
+    if (mode === 'shuffle') snapshot();
     let data = null;
     if (t === 'insertText' || t === 'insertReplacementText') {
       data = e.data;
@@ -263,22 +384,32 @@
 
   // IME / predictive keyboards compose in place; leave the composition
   // alone and cipher the result once it lands.
-  pad.addEventListener('compositionstart', () => { composing = true; });
+  pad.addEventListener('compositionstart', () => {
+    composing = true;
+    if (mode === 'shuffle') snapshot();
+  });
   pad.addEventListener('compositionend', (e) => {
-    composing = false;
     const data = e.data || '';
-    if (!data) return;
+    // Stay `composing` until the browser's own input event has been and
+    // gone, so nothing treats the raw composed text as ciphertext.
     setTimeout(() => {
       const end = pad.selectionStart;
       const start = end - data.length;
-      if (start < 0 || pad.value.slice(start, end) !== data) return;
-      pad.setRangeText(code(data), start, end, 'end');
+      if (data && start >= 0 && pad.value.slice(start, end) === data) {
+        pad.setRangeText(code(data), start, end, 'end');
+      }
+      composing = false;
+      if (mode === 'shuffle') reshuffle();
       updateCount();
       save();
     }, 0);
   });
 
-  pad.addEventListener('input', () => { updateCount(); save(); });
+  pad.addEventListener('input', () => {
+    if (mode === 'shuffle' && !composing && !revealed) reshuffle();
+    updateCount();
+    save();
+  });
 
   // --- reveal -----------------------------------------------------------
   function setReveal(on) {
@@ -306,7 +437,9 @@
     if (next === mode || revealed) return;
     const plain = code(pad.value);        // decode with the outgoing cipher
     mode = next;
+    if (mode === 'shuffle') key = randomPairing();
     pad.value = code(plain);              // re-encode with the new one
+    resetHistory();
     chips.forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.mode === mode)));
     save();
     pad.focus();
@@ -353,6 +486,7 @@
     clearBtn.textContent = clearBtn.dataset.label || 'clear';
     setReveal(false);
     pad.value = '';
+    resetHistory();
     updateCount();
     save();
     pad.focus();
