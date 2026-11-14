@@ -1,0 +1,1296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0e1014" />
+<title>Kapalabhati</title>
+<style>
+  :root {
+    --bg: #0e1014;
+    --panel: #161920;
+    --panel-2: #1c2029;
+    --ink: #e9edf5;
+    --muted: #8a93a6;
+    --faint: #5a6273;
+    --accent: #f4b860;
+    --cool: #7cc4e8;
+    --calm: #9ad3a8;
+    --line: rgba(255, 255, 255, 0.08);
+    --line-2: rgba(255, 255, 255, 0.14);
+    --danger: #ef7a7a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body { min-height: 100svh; }
+  button { font: inherit; color: inherit; }
+  .hidden { display: none !important; }
+
+  /* ---------- setup view ---------- */
+  .setup {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: calc(env(safe-area-inset-top) + 20px) 16px calc(env(safe-area-inset-bottom) + 120px);
+  }
+  header h1 {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  header p { margin: 6px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+  .section-label {
+    margin: 26px 0 10px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .section-label .total { letter-spacing: 0.02em; text-transform: none; font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .section-label .total.off { color: var(--accent); }
+
+  .presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+  .preset {
+    text-align: left;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .preset:hover { border-color: var(--line-2); }
+  .preset.active { border-color: var(--accent); background: #1d1a15; }
+  .preset b { display: block; font-size: 15px; font-weight: 600; }
+  .preset span { display: block; margin-top: 3px; font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+
+  .run { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .item {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .item-row { display: flex; align-items: center; gap: 10px; padding: 10px 8px 10px 12px; }
+  .item-num {
+    width: 22px; flex: none; text-align: center;
+    color: var(--faint); font-size: 13px; font-variant-numeric: tabular-nums;
+  }
+  .swatch { width: 4px; align-self: stretch; border-radius: 2px; flex: none; }
+  .item-main { flex: 1; min-width: 0; cursor: pointer; }
+  .item-name { font-size: 15px; font-weight: 600; }
+  .item-sum { font-size: 12.5px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item-dur { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .item-row .icon-btn { width: 30px; }
+  @media (max-width: 420px) { .item-num { display: none; } .item-row { gap: 8px; } }
+  .icon-btn {
+    width: 34px; height: 34px; flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 0; border-radius: 8px;
+    color: var(--muted); cursor: pointer;
+  }
+  .icon-btn:hover { background: var(--panel-2); color: var(--ink); }
+  .icon-btn:disabled { opacity: 0.25; cursor: default; background: transparent; }
+  .icon-btn.del:hover { color: var(--danger); }
+  .icon-btn svg { width: 18px; height: 18px; }
+  .item-edit {
+    border-top: 1px solid var(--line);
+    padding: 12px 14px 14px;
+    display: grid;
+    gap: 12px;
+  }
+  .item-edit p { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--muted); }
+  .params { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+  .param label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .stepper { display: flex; align-items: center; background: var(--bg); border: 1px solid var(--line); border-radius: 9px; }
+  .stepper button { width: 34px; height: 34px; border: 0; background: transparent; cursor: pointer; color: var(--muted); font-size: 18px; flex: none; }
+  .stepper button:hover { color: var(--ink); }
+  .stepper output { flex: 1; text-align: center; font-variant-numeric: tabular-nums; font-size: 14px; }
+  .seg-ctl { display: flex; background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 2px; }
+  .seg-ctl button { flex: 1; height: 30px; border: 0; background: transparent; border-radius: 7px; cursor: pointer; font-size: 13px; color: var(--muted); }
+  .seg-ctl button.on { background: var(--panel-2); color: var(--ink); }
+
+  .add-btn, .ghost-btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%;
+    margin-top: 8px;
+    padding: 12px;
+    background: transparent;
+    border: 1px dashed var(--line-2);
+    border-radius: 12px;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .add-btn:hover { color: var(--ink); border-color: var(--muted); }
+  .row-actions { display: flex; gap: 8px; }
+  .ghost-btn { border-style: solid; border-color: var(--line); font-size: 13px; padding: 9px; }
+  .ghost-btn:hover { color: var(--ink); }
+
+  .library { margin-top: 8px; display: grid; gap: 6px; }
+  .lib-item {
+    display: flex; gap: 12px; align-items: flex-start; text-align: left;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px; cursor: pointer; width: 100%;
+  }
+  .lib-item:hover { border-color: var(--line-2); }
+  .lib-item .swatch { align-self: stretch; }
+  .lib-item b { display: block; font-size: 14.5px; }
+  .lib-item span { display: block; font-size: 12.5px; color: var(--muted); margin-top: 3px; line-height: 1.45; }
+  .lib-item .plus { margin-left: auto; color: var(--muted); font-size: 20px; line-height: 1; padding-top: 2px; }
+
+  details.about {
+    margin-top: 26px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 0 14px;
+  }
+  details.about summary { cursor: pointer; padding: 13px 0; font-size: 14px; font-weight: 600; list-style: none; }
+  details.about summary::-webkit-details-marker { display: none; }
+  details.about summary::after { content: "+"; float: right; color: var(--muted); }
+  details.about[open] summary::after { content: "–"; }
+  details.about div { padding-bottom: 14px; font-size: 13.5px; line-height: 1.6; color: var(--muted); }
+  details.about b { color: var(--ink); font-weight: 600; }
+  details.about ul { margin: 6px 0; padding-left: 18px; }
+
+  .toggles { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 14px; font-size: 13.5px; color: var(--muted); }
+  .toggles label { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+  .toggles input { accent-color: var(--accent); width: 16px; height: 16px; }
+
+  .start-bar {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    padding: 14px 16px calc(env(safe-area-inset-bottom) + 14px);
+    background: linear-gradient(to top, var(--bg) 60%, rgba(14, 16, 20, 0));
+    display: flex; justify-content: center;
+  }
+  .start {
+    width: min(100%, 608px);
+    height: 54px;
+    border: 0; border-radius: 14px;
+    background: var(--accent); color: #1f1608;
+    font-size: 16px; font-weight: 700;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+  }
+  .start:disabled { opacity: 0.4; cursor: default; }
+  .start small { font-weight: 500; opacity: 0.75; font-variant-numeric: tabular-nums; }
+
+  /* ---------- player view ---------- */
+  .player {
+    position: fixed; inset: 0;
+    background: var(--bg);
+    display: flex; flex-direction: column;
+    padding: calc(env(safe-area-inset-top) + 14px) 16px calc(env(safe-area-inset-bottom) + 18px);
+    user-select: none; -webkit-user-select: none;
+  }
+  .p-top { display: flex; align-items: center; gap: 10px; max-width: 640px; width: 100%; margin: 0 auto; }
+  .p-title { flex: 1; min-width: 0; }
+  .p-ex { font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .p-count { font-size: 12.5px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .p-time { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+
+  .timeline {
+    max-width: 640px; width: 100%; margin: 14px auto 0;
+    display: flex; gap: 2px; height: 6px; cursor: pointer;
+  }
+  .timeline .chunk { position: relative; height: 100%; border-radius: 3px; overflow: hidden; background: var(--panel-2); min-width: 3px; }
+  .timeline .chunk i { position: absolute; inset: 0 auto 0 0; width: 0; opacity: 0.9; }
+
+  .stage {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px;
+  }
+  .orb-wrap { position: relative; width: min(64vmin, 340px); aspect-ratio: 1; display: grid; place-items: center; }
+  .orb-ring { position: absolute; inset: 0; border-radius: 50%; border: 1px solid var(--line-2); }
+  .orb-ring.inner { inset: 33%; border-style: dashed; border-color: var(--line); }
+  .orb {
+    position: absolute; inset: 0; margin: auto;
+    width: 100%; height: 100%;
+    border-radius: 50%;
+    transform: scale(0.4);
+    will-change: transform;
+    background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--c, var(--accent)) 55%, white 0%) 0%, color-mix(in srgb, var(--c, var(--accent)) 30%, transparent) 55%, transparent 72%);
+    box-shadow: 0 0 80px color-mix(in srgb, var(--c, var(--accent)) 22%, transparent);
+  }
+  .orb-text { position: relative; text-align: center; pointer-events: none; }
+  .phase { font-size: 13px; font-weight: 700; letter-spacing: 0.24em; text-transform: uppercase; color: var(--ink); text-shadow: 0 1px 8px rgba(0,0,0,0.6); }
+  .big { font-size: clamp(54px, 16vmin, 96px); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; margin-top: 4px; text-shadow: 0 2px 16px rgba(0,0,0,0.5); }
+  .big small { font-size: 0.32em; font-weight: 500; color: var(--muted); }
+  .sub { font-size: 13px; color: var(--ink); opacity: 0.8; margin-top: 6px; min-height: 1.2em; text-shadow: 0 1px 8px rgba(0,0,0,0.6); }
+
+  .guide {
+    max-width: 520px; width: 100%; margin: 18px auto 0;
+    min-height: 5.6em;
+    text-align: center;
+    font-size: 15px; line-height: 1.55; color: var(--muted);
+    transition: opacity 400ms ease;
+    padding: 0 4px;
+  }
+  .guide.intro { color: var(--ink); font-size: 16px; }
+  .guide.fade { opacity: 0; }
+  .guide .next { display: block; font-size: 11.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); margin-bottom: 6px; font-weight: 600; }
+
+  .controls { display: flex; justify-content: center; align-items: center; gap: 22px; margin-top: 10px; }
+  .ctl {
+    width: 52px; height: 52px; border-radius: 50%;
+    border: 1px solid var(--line-2); background: var(--panel);
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--ink);
+  }
+  .ctl svg { width: 22px; height: 22px; }
+  .ctl.main { width: 72px; height: 72px; background: var(--ink); color: var(--bg); border: 0; }
+  .ctl.main svg { width: 28px; height: 28px; }
+  .ctl:active { transform: scale(0.96); }
+
+  .done { text-align: center; }
+  .done h2 { margin: 0; font-size: 24px; }
+  .done p { color: var(--muted); max-width: 380px; margin: 10px auto 0; line-height: 1.55; font-size: 14.5px; }
+</style>
+</head>
+<body>
+
+<!-- ================= SETUP ================= -->
+<main class="setup" id="setup">
+  <header>
+    <h1>Kapalabhati</h1>
+    <p>A guided 15-minute breathing session: skull-shining breath rounds with retention, balanced by slower calming practices. Pick a preset, then tweak the run.</p>
+  </header>
+
+  <div class="section-label">Presets</div>
+  <div class="presets" id="presets"></div>
+
+  <div class="section-label">
+    <span id="runLabel">Run</span>
+    <span class="total" id="total">0:00</span>
+  </div>
+  <ol class="run" id="run"></ol>
+  <button class="add-btn" id="addBtn" type="button">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    Add exercise
+  </button>
+  <div class="library hidden" id="library"></div>
+  <div class="row-actions">
+    <button class="ghost-btn" id="fitBtn" type="button">Fit to 15:00</button>
+    <button class="ghost-btn" id="resetBtn" type="button">Reset to preset</button>
+  </div>
+
+  <div class="toggles">
+    <label><input type="checkbox" id="optSound" checked /> Pace clicks &amp; chimes</label>
+    <label><input type="checkbox" id="optVibe" /> Vibrate on phase change</label>
+  </div>
+
+  <details class="about">
+    <summary>About Kapalabhati &amp; safety</summary>
+    <div>
+      <p><b>Kapalabhati</b> ("skull-shining breath") is a cleansing practice from hatha yoga. The exhale is short and active — a sharp snap of the lower belly pushes air out through the nose — and the inhale happens on its own as the belly relaxes. It's energising and warming, and traditionally followed by a breath hold (kumbhaka) and quiet, slower breathing to settle the nervous system.</p>
+      <p><b>Technique:</b> sit tall, mouth closed, breathe through the nose. Keep the chest and shoulders still; only the belly moves. Start slow — clean, even strokes matter more than speed.</p>
+      <p><b>Skip or go gentle if you</b> are pregnant or menstruating heavily, have high blood pressure, heart disease, epilepsy, a hernia, glaucoma, or recent abdominal surgery. Practise on an empty stomach. Never practise breath holds in or near water, or while driving. If you feel dizzy or tingly, stop and breathe normally — lightheadedness means slow down.</p>
+    </div>
+  </details>
+</main>
+
+<div class="start-bar" id="startBar">
+  <button class="start" id="startBtn" type="button">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M7 4.5v15l13-7.5z"/></svg>
+    Begin <small id="startDur"></small>
+  </button>
+</div>
+
+<!-- ================= PLAYER ================= -->
+<section class="player hidden" id="player" aria-live="polite">
+  <div class="p-top">
+    <button class="icon-btn" id="closeBtn" aria-label="End session" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <div class="p-title">
+      <div class="p-ex" id="pEx">—</div>
+      <div class="p-count" id="pCount"></div>
+    </div>
+    <div class="p-time"><span id="pElapsed">0:00</span><br /><span id="pRemain" style="color:var(--faint)">-15:00</span></div>
+  </div>
+  <div class="timeline" id="timeline"></div>
+
+  <div class="stage" id="stage">
+    <div class="orb-wrap">
+      <div class="orb-ring"></div>
+      <div class="orb-ring inner"></div>
+      <div class="orb" id="orb"></div>
+      <div class="orb-text">
+        <div class="phase" id="phase">Ready</div>
+        <div class="big" id="big">—</div>
+        <div class="sub" id="sub"></div>
+      </div>
+    </div>
+    <div class="guide" id="guide"></div>
+  </div>
+
+  <div class="stage done hidden" id="donePanel">
+    <h2>Complete</h2>
+    <p>Stay seated for a moment. Notice the breath, the body, the quality of your attention before moving on.</p>
+    <div class="controls" style="margin-top:22px">
+      <button class="ghost-btn" id="againBtn" type="button" style="width:auto;padding:10px 18px;margin:0">Again</button>
+      <button class="ghost-btn" id="doneBtn" type="button" style="width:auto;padding:10px 18px;margin:0">Done</button>
+    </div>
+  </div>
+
+  <div class="controls" id="controls">
+    <button class="ctl" id="prevBtn" aria-label="Previous exercise" type="button">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg>
+    </button>
+    <button class="ctl main" id="playBtn" aria-label="Pause" type="button">
+      <svg viewBox="0 0 24 24" fill="currentColor" id="playIcon"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
+    </button>
+    <button class="ctl" id="nextBtn" aria-label="Next exercise" type="button">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>
+    </button>
+  </div>
+</section>
+
+<script>
+(function () {
+  "use strict";
+
+  // =====================================================================
+  //  Exercise library
+  //  Each exercise expands (via build) into a flat list of *segments*:
+  //    { kind, dur, label, cue, ...extras }
+  //  kinds: intro | free | inhale | exhale | hold-in | hold-out | pump | bellows | rest
+  //  `cue` is a stable key ("<exercise>.<step>") meant for syncing audio
+  //  guides later — see window.breath below.
+  // =====================================================================
+
+  const INTRO = 12; // seconds of explanation before each guided exercise
+
+  const seg = (kind, dur, label, cue, extra) => Object.assign({ kind, dur, label, cue }, extra || {});
+  const cycle = (n, fn) => { const out = []; for (let i = 0; i < n; i++) out.push(...fn(i)); return out; };
+
+  const EXERCISES = {
+    settle: {
+      name: "Arrive",
+      color: "#9aa7c7",
+      blurb: "Settle in and let the breath move on its own.",
+      about: "Sit tall with a long spine, shoulders soft, hands resting on your knees. Close your eyes and let the breath move by itself. Notice where you feel it — the nostrils, the chest, the belly.",
+      tips: [
+        "Lengthen up through the crown of the head. Let the jaw and shoulders soften.",
+        "No need to control anything yet. Just watch the breath come and go.",
+        "Notice the cool air on the inhale, the warmer air on the exhale.",
+        "Bring your attention to the belly. Feel it rise and fall.",
+      ],
+      intro: 0,
+      params: [{ k: "secs", label: "Length", min: 20, max: 300, step: 10, unit: "s", def: 60 }],
+      summary: (p) => `${p.secs}s of natural breathing`,
+      build: (p) => [seg("free", p.secs, "Breathe naturally", "settle.free")],
+    },
+
+    belly: {
+      name: "Belly breathing",
+      color: "#9ad3a8",
+      blurb: "Slow diaphragmatic breaths to wake up the belly.",
+      about: "Diaphragmatic breathing warms up the muscles you'll use for Kapalabhati. Breathe in through the nose and let the belly swell outward; breathe out slowly and let it fall back toward the spine. The chest stays quiet.",
+      tips: [
+        "Place a hand on the belly if it helps. Feel it push out as you inhale.",
+        "Long exhales calm the nervous system — let each one be slow and complete.",
+        "Keep the chest and shoulders still. All the movement is low.",
+      ],
+      intro: INTRO,
+      params: [
+        { k: "cycles", label: "Breaths", min: 2, max: 20, step: 1, def: 6 },
+        { k: "inhale", label: "Inhale", min: 2, max: 8, step: 1, unit: "s", def: 4 },
+        { k: "exhale", label: "Exhale", min: 2, max: 12, step: 1, unit: "s", def: 6 },
+      ],
+      summary: (p) => `${p.cycles} breaths · ${p.inhale}s in / ${p.exhale}s out`,
+      build: (p) => cycle(p.cycles, (i) => [
+        seg("inhale", p.inhale, "Inhale", "belly.inhale", { sub: "Belly out" }),
+        seg("exhale", p.exhale, "Exhale", "belly.exhale", { sub: "Belly falls back" }),
+      ]),
+    },
+
+    kapalabhati: {
+      name: "Kapalabhati",
+      color: "#f4b860",
+      blurb: "Sharp, rhythmic exhales from the belly, then a breath hold.",
+      about: "Short, forceful exhales through the nose, driven by a quick snap of the lower belly. Don't try to inhale — let the belly relax and the air return by itself. After the strokes, a full breath and a calm hold, then a slow release.",
+      tips: [
+        "Exhale is active, inhale is passive. Snap the belly in, then let it go.",
+        "Keep the chest, shoulders and face completely still.",
+        "Rhythm over speed. Even, crisp strokes, like a steady drum.",
+        "Mouth closed. All the air moves through the nose.",
+        "If you feel lightheaded, slow down or pause — that's fine.",
+        "Feel the warmth building in the belly. That's the cleansing fire, agni.",
+      ],
+      holdTips: [
+        "Rest in the stillness. Let the body be quiet.",
+        "Relax the face. Soften behind the eyes.",
+        "Notice the tingling, the space, the quiet mind.",
+        "If you need to breathe, release gently — no strain.",
+      ],
+      intro: INTRO,
+      params: [
+        { k: "strokes", label: "Strokes", min: 10, max: 150, step: 5, def: 30 },
+        { k: "pace", label: "Pace", min: 30, max: 150, step: 5, unit: "/min", def: 60 },
+        { k: "hold", label: "Hold", min: 0, max: 120, step: 5, unit: "s", def: 30 },
+        { k: "holdOn", label: "Hold on", type: "choice", options: [["in", "Inhale"], ["out", "Exhale"]], def: "in" },
+      ],
+      summary: (p) => `${p.strokes} strokes @ ${p.pace}/min` + (p.hold ? ` · ${p.hold}s hold ${p.holdOn === "out" ? "empty" : "full"}` : ""),
+      build: (p) => {
+        const out = [
+          seg("inhale", 4, "Deep inhale", "kapalabhati.prep.inhale", { sub: "Fill up completely" }),
+          seg("exhale", 5, "Exhale", "kapalabhati.prep.exhale", { sub: "Let it all go" }),
+          seg("inhale", 3, "Half breath in", "kapalabhati.prep.half", { sub: "Get ready…" }),
+          seg("pump", (p.strokes * 60) / p.pace, "Pump", "kapalabhati.pump", { strokes: p.strokes, period: 60 / p.pace }),
+        ];
+        if (p.hold > 0) {
+          if (p.holdOn === "out") {
+            out.push(seg("exhale", 4, "Exhale fully", "kapalabhati.hold.prep", { sub: "Empty the lungs" }));
+            out.push(seg("hold-out", p.hold, "Hold — empty", "kapalabhati.hold", { sub: "Draw the belly in and up" }));
+            out.push(seg("inhale", 4, "Recovery inhale", "kapalabhati.hold.release", { sub: "Slowly breathe in" }));
+            out.push(seg("exhale", 6, "Exhale", "kapalabhati.recover.exhale", { sub: "Long and slow" }));
+          } else {
+            out.push(seg("inhale", 4, "Deep inhale", "kapalabhati.hold.prep", { sub: "All the way up" }));
+            out.push(seg("hold-in", p.hold, "Hold — full", "kapalabhati.hold", { sub: "Chin softly down" }));
+            out.push(seg("exhale", 6, "Release", "kapalabhati.hold.release", { sub: "Slowly breathe out" }));
+          }
+        } else {
+          out.push(seg("exhale", 5, "Exhale", "kapalabhati.end.exhale", { sub: "Let everything go" }));
+        }
+        out.push(...cycle(2, () => [
+          seg("inhale", 4, "Recovery", "kapalabhati.recover.inhale", { sub: "Breathe in" }),
+          seg("exhale", 6, "Recovery", "kapalabhati.recover.exhale", { sub: "Breathe out" }),
+        ]));
+        return out;
+      },
+    },
+
+    bhastrika: {
+      name: "Bhastrika",
+      color: "#f08a5d",
+      blurb: "Bellows breath — forceful inhale and exhale in equal measure.",
+      about: "Bellows breath. Unlike Kapalabhati, both the inhale and the exhale are active and equal: the belly pumps out and in like a blacksmith's bellows. More intense and heating — keep it shorter and stop if you feel dizzy.",
+      tips: [
+        "Equal force in and out. The belly drives both directions.",
+        "Stay relaxed in the face and shoulders, even as the breath works hard.",
+        "Slower and fuller is better than fast and shallow.",
+      ],
+      holdTips: ["Hold softly. Feel the energy spreading through the body."],
+      intro: INTRO,
+      params: [
+        { k: "strokes", label: "Breaths", min: 10, max: 60, step: 5, def: 20 },
+        { k: "pace", label: "Pace", min: 30, max: 90, step: 5, unit: "/min", def: 50 },
+        { k: "hold", label: "Hold", min: 0, max: 60, step: 5, unit: "s", def: 15 },
+      ],
+      summary: (p) => `${p.strokes} breaths @ ${p.pace}/min` + (p.hold ? ` · ${p.hold}s hold` : ""),
+      build: (p) => {
+        const out = [
+          seg("inhale", 4, "Deep inhale", "bhastrika.prep.inhale"),
+          seg("exhale", 4, "Exhale", "bhastrika.prep.exhale"),
+          seg("bellows", (p.strokes * 60) / p.pace, "Bellows", "bhastrika.pump", { strokes: p.strokes, period: 60 / p.pace }),
+          seg("inhale", 4, "Deep inhale", "bhastrika.hold.prep"),
+        ];
+        if (p.hold > 0) out.push(seg("hold-in", p.hold, "Hold — full", "bhastrika.hold"));
+        out.push(seg("exhale", 6, "Release", "bhastrika.release", { sub: "Slow and smooth" }));
+        out.push(seg("inhale", 4, "Recovery", "bhastrika.recover.inhale"), seg("exhale", 6, "Recovery", "bhastrika.recover.exhale"));
+        return out;
+      },
+    },
+
+    nadi: {
+      name: "Nadi shodhana",
+      color: "#7cc4e8",
+      blurb: "Alternate-nostril breathing to balance and calm.",
+      about: "Alternate-nostril breathing. Rest your right thumb by the right nostril and your ring finger by the left. Close one side, breathe in through the other, switch, and breathe out. It balances the energising effects of Kapalabhati and steadies the mind.",
+      tips: [
+        "Light touch on the nose — just enough to close the nostril.",
+        "Smooth, silent breath. Let the exhale be a little longer than the inhale.",
+        "Imagine the breath tracing a horseshoe: up one side, down the other.",
+        "Let the left hand rest open on the knee.",
+      ],
+      intro: INTRO,
+      params: [
+        { k: "cycles", label: "Rounds", min: 2, max: 20, step: 1, def: 6 },
+        { k: "inhale", label: "Inhale", min: 2, max: 8, step: 1, unit: "s", def: 4 },
+        { k: "exhale", label: "Exhale", min: 2, max: 12, step: 1, unit: "s", def: 6 },
+      ],
+      summary: (p) => `${p.cycles} rounds · ${p.inhale}s in / ${p.exhale}s out`,
+      build: (p) => cycle(p.cycles, () => [
+        seg("inhale", p.inhale, "Inhale left", "nadi.inhale.left", { sub: "Close the right nostril", side: "L" }),
+        seg("exhale", p.exhale, "Exhale right", "nadi.exhale.right", { sub: "Switch — close the left", side: "R" }),
+        seg("inhale", p.inhale, "Inhale right", "nadi.inhale.right", { sub: "Keep the left closed", side: "R" }),
+        seg("exhale", p.exhale, "Exhale left", "nadi.exhale.left", { sub: "Switch — close the right", side: "L" }),
+      ]),
+    },
+
+    box: {
+      name: "Box breathing",
+      color: "#b5a3e8",
+      blurb: "Equal inhale, hold, exhale, hold.",
+      about: "Four equal sides: breathe in, hold full, breathe out, hold empty. A steadying, focusing rhythm used to bring the heart rate down after activation.",
+      tips: [
+        "Trace a square in your mind, one side per phase.",
+        "The holds are soft pauses, not a clench. Keep the throat relaxed.",
+      ],
+      intro: INTRO,
+      params: [
+        { k: "cycles", label: "Rounds", min: 2, max: 20, step: 1, def: 5 },
+        { k: "count", label: "Side", min: 3, max: 8, step: 1, unit: "s", def: 4 },
+      ],
+      summary: (p) => `${p.cycles} rounds · ${p.count}-${p.count}-${p.count}-${p.count}`,
+      build: (p) => cycle(p.cycles, () => [
+        seg("inhale", p.count, "Inhale", "box.inhale"),
+        seg("hold-in", p.count, "Hold", "box.hold.in"),
+        seg("exhale", p.count, "Exhale", "box.exhale"),
+        seg("hold-out", p.count, "Hold", "box.hold.out"),
+      ]),
+    },
+
+    relax478: {
+      name: "4-7-8 breath",
+      color: "#8fb8de",
+      blurb: "Long hold and longer exhale for deep relaxation.",
+      about: "Inhale quietly through the nose for 4, hold for 7, then exhale through the mouth with a soft whoosh for 8. The long exhale switches on the body's rest-and-digest response.",
+      tips: [
+        "Rest the tip of the tongue behind the upper front teeth.",
+        "Exhale through the mouth, around the tongue, with a gentle whoosh.",
+        "If the hold feels long, shorten the counts but keep the ratio.",
+      ],
+      intro: INTRO,
+      params: [{ k: "cycles", label: "Rounds", min: 2, max: 10, step: 1, def: 4 }],
+      summary: (p) => `${p.cycles} rounds · 4-7-8`,
+      build: (p) => cycle(p.cycles, () => [
+        seg("inhale", 4, "Inhale", "relax478.inhale", { sub: "Through the nose" }),
+        seg("hold-in", 7, "Hold", "relax478.hold"),
+        seg("exhale", 8, "Exhale", "relax478.exhale", { sub: "Whoosh through the mouth" }),
+      ]),
+    },
+
+    resonant: {
+      name: "Coherent breathing",
+      color: "#9ad3c8",
+      blurb: "Slow, even breaths at around six per minute.",
+      about: "Breathe in and out evenly at about five or six breaths a minute. This pace tends to synchronise heart rate and breath, leaving you calm but alert.",
+      tips: [
+        "No pauses at the top or bottom — let one breath roll into the next.",
+        "Light and quiet. You shouldn't hear the breath.",
+      ],
+      intro: INTRO,
+      params: [
+        { k: "cycles", label: "Breaths", min: 3, max: 30, step: 1, def: 8 },
+        { k: "len", label: "Each way", min: 3, max: 8, step: 0.5, unit: "s", def: 5.5 },
+      ],
+      summary: (p) => `${p.cycles} breaths · ${p.len}s / ${p.len}s`,
+      build: (p) => cycle(p.cycles, () => [
+        seg("inhale", p.len, "Inhale", "resonant.inhale"),
+        seg("exhale", p.len, "Exhale", "resonant.exhale"),
+      ]),
+    },
+
+    bhramari: {
+      name: "Bhramari",
+      color: "#e8c58f",
+      blurb: "Humming bee breath — a long hummed exhale.",
+      about: "Humming bee breath. Inhale through the nose, then exhale with a low, steady hum, lips closed and teeth slightly apart. You can gently press the ear flaps closed with your index fingers to turn the sound inward.",
+      tips: [
+        "Let the hum vibrate in the face, the skull, the chest.",
+        "Low and steady, like a bee. Don't force the volume.",
+        "After each hum, notice the silence it leaves behind.",
+      ],
+      intro: INTRO,
+      params: [
+        { k: "cycles", label: "Rounds", min: 2, max: 15, step: 1, def: 5 },
+        { k: "hum", label: "Hum", min: 4, max: 15, step: 1, unit: "s", def: 8 },
+      ],
+      summary: (p) => `${p.cycles} rounds · ${p.hum}s hum`,
+      build: (p) => cycle(p.cycles, () => [
+        seg("inhale", 4, "Inhale", "bhramari.inhale"),
+        seg("exhale", p.hum, "Hum", "bhramari.hum", { sub: "Mmmmm…" }),
+      ]),
+    },
+
+    rest: {
+      name: "Stillness",
+      color: "#6f7a92",
+      blurb: "Sit in silence and let the practice settle.",
+      about: "Let go of all technique. Sit quietly, or lie down if you prefer. Let the breath return to its own rhythm and simply notice how you feel.",
+      tips: [
+        "Nothing to do now. Let the breath breathe itself.",
+        "Notice the body — warmth, tingling, the quality of the mind.",
+        "If thoughts come, let them pass like clouds.",
+        "Rest here. Take in the effects of the practice.",
+      ],
+      intro: 0,
+      params: [{ k: "secs", label: "Length", min: 20, max: 600, step: 10, unit: "s", def: 120 }],
+      summary: (p) => `${fmt(p.secs)} of silence`,
+      build: (p) => [seg("rest", p.secs, "Stillness", "rest.still")],
+    },
+  };
+
+  // =====================================================================
+  //  Presets (each ~15:00)
+  // =====================================================================
+  const PRESETS = [
+    {
+      id: "classic",
+      name: "Classic",
+      blurb: "Three building rounds with full holds, then balance & rest.",
+      items: [
+        ["settle", { secs: 60 }],
+        ["belly", { cycles: 6 }],
+        ["kapalabhati", { strokes: 30, pace: 60, hold: 30, holdOn: "in" }],
+        ["kapalabhati", { strokes: 45, pace: 75, hold: 45, holdOn: "in" }],
+        ["kapalabhati", { strokes: 60, pace: 90, hold: 60, holdOn: "in" }],
+        ["nadi", { cycles: 6 }],
+        ["bhramari", { cycles: 5 }],
+        ["rest", { secs: 161 }],
+      ],
+    },
+    {
+      id: "gentle",
+      name: "Gentle",
+      blurb: "Beginner-friendly: slow pace, short holds, lots of calm.",
+      items: [
+        ["settle", { secs: 90 }],
+        ["belly", { cycles: 8 }],
+        ["kapalabhati", { strokes: 20, pace: 40, hold: 10, holdOn: "in" }],
+        ["kapalabhati", { strokes: 30, pace: 45, hold: 15, holdOn: "in" }],
+        ["resonant", { cycles: 6, len: 5 }],
+        ["kapalabhati", { strokes: 30, pace: 50, hold: 20, holdOn: "in" }],
+        ["nadi", { cycles: 8 }],
+        ["rest", { secs: 161 }],
+      ],
+    },
+    {
+      id: "energise",
+      name: "Energise",
+      blurb: "Faster rounds, empty holds and bhastrika. A morning wake-up.",
+      items: [
+        ["settle", { secs: 40 }],
+        ["kapalabhati", { strokes: 50, pace: 80, hold: 30, holdOn: "out" }],
+        ["kapalabhati", { strokes: 70, pace: 100, hold: 40, holdOn: "out" }],
+        ["bhastrika", { strokes: 20, pace: 50, hold: 15 }],
+        ["kapalabhati", { strokes: 90, pace: 110, hold: 50, holdOn: "out" }],
+        ["bhastrika", { strokes: 30, pace: 55, hold: 20 }],
+        ["kapalabhati", { strokes: 100, pace: 120, hold: 45, holdOn: "in" }],
+        ["box", { cycles: 3, count: 4 }],
+        ["rest", { secs: 57 }],
+      ],
+    },
+    {
+      id: "unwind",
+      name: "Unwind",
+      blurb: "Two light rounds to clear the head, then a long wind-down.",
+      items: [
+        ["settle", { secs: 60 }],
+        ["kapalabhati", { strokes: 30, pace: 60, hold: 20, holdOn: "in" }],
+        ["kapalabhati", { strokes: 40, pace: 60, hold: 30, holdOn: "in" }],
+        ["nadi", { cycles: 6, inhale: 4, exhale: 8 }],
+        ["relax478", { cycles: 4 }],
+        ["bhramari", { cycles: 6, hum: 10 }],
+        ["resonant", { cycles: 8, len: 5.5 }],
+        ["rest", { secs: 172 }],
+      ],
+    },
+  ];
+
+  const TARGET = 15 * 60;
+
+  // =====================================================================
+  //  Helpers
+  // =====================================================================
+  const $ = (id) => document.getElementById(id);
+  function fmt(s) {
+    s = Math.max(0, Math.round(s));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }
+  let uid = 0;
+  const newId = () => `x${Date.now().toString(36)}${(uid++).toString(36)}`;
+
+  function defaults(type) {
+    const p = {};
+    for (const d of EXERCISES[type].params) p[d.k] = d.def;
+    return p;
+  }
+  function makeItem(type, params) {
+    return { id: newId(), type, params: Object.assign(defaults(type), params || {}) };
+  }
+  function itemSegments(item) {
+    const def = EXERCISES[item.type];
+    const segs = [];
+    if (def.intro) segs.push(seg("intro", def.intro, "Up next", `${item.type}.intro`));
+    segs.push(...def.build(item.params));
+    return segs;
+  }
+  const itemDuration = (item) => itemSegments(item).reduce((a, s) => a + s.dur, 0);
+  const runDuration = (items) => items.reduce((a, it) => a + itemDuration(it), 0);
+
+  // =====================================================================
+  //  State (persisted)
+  // =====================================================================
+  const STORE = "kapalabhati.v1";
+  let state = load() || { presetId: "classic", custom: false, items: presetItems("classic"), sound: true, vibe: false };
+  let openId = null;
+
+  function presetItems(id) {
+    const p = PRESETS.find((x) => x.id === id) || PRESETS[0];
+    return p.items.map(([t, params]) => makeItem(t, params));
+  }
+  function load() {
+    try {
+      const s = JSON.parse(localStorage.getItem(STORE));
+      if (!s || !Array.isArray(s.items)) return null;
+      s.items = s.items.filter((it) => EXERCISES[it.type]).map((it) => makeItem(it.type, it.params));
+      return s;
+    } catch (_) { return null; }
+  }
+  function save() {
+    try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (_) {}
+  }
+
+  // =====================================================================
+  //  Setup UI
+  // =====================================================================
+  const ICONS = {
+    up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',
+    down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
+    del: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  };
+
+  function renderPresets() {
+    const el = $("presets");
+    el.innerHTML = "";
+    for (const p of PRESETS) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "preset" + (p.id === state.presetId && !state.custom ? " active" : "");
+      const dur = runDuration(p.items.map(([t, pr]) => makeItem(t, pr)));
+      b.innerHTML = `<b>${p.name} <span style="display:inline;color:var(--faint);font-weight:400">${fmt(dur)}</span></b><span>${p.blurb}</span>`;
+      b.addEventListener("click", () => {
+        state.presetId = p.id;
+        state.custom = false;
+        state.items = presetItems(p.id);
+        openId = null;
+        commit();
+      });
+      el.appendChild(b);
+    }
+  }
+
+  function renderRun() {
+    const el = $("run");
+    el.innerHTML = "";
+    state.items.forEach((item, i) => {
+      const def = EXERCISES[item.type];
+      const li = document.createElement("li");
+      li.className = "item";
+      li.innerHTML = `
+        <div class="item-row">
+          <span class="item-num">${i + 1}</span>
+          <span class="swatch" style="background:${def.color}"></span>
+          <div class="item-main" role="button" tabindex="0" aria-expanded="${openId === item.id}">
+            <div class="item-name">${def.name}</div>
+            <div class="item-sum"><span class="item-dur">${fmt(itemDuration(item))}</span> · ${def.summary(item.params)}</div>
+          </div>
+          <button class="icon-btn" data-act="up" aria-label="Move up" ${i === 0 ? "disabled" : ""}>${ICONS.up}</button>
+          <button class="icon-btn" data-act="down" aria-label="Move down" ${i === state.items.length - 1 ? "disabled" : ""}>${ICONS.down}</button>
+          <button class="icon-btn del" data-act="del" aria-label="Remove">${ICONS.del}</button>
+        </div>`;
+      const main = li.querySelector(".item-main");
+      const toggle = () => { openId = openId === item.id ? null : item.id; renderRun(); };
+      main.addEventListener("click", toggle);
+      main.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+      li.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => {
+        const act = b.dataset.act;
+        if (act === "del") state.items.splice(i, 1);
+        if (act === "up" && i > 0) [state.items[i - 1], state.items[i]] = [state.items[i], state.items[i - 1]];
+        if (act === "down" && i < state.items.length - 1) [state.items[i + 1], state.items[i]] = [state.items[i], state.items[i + 1]];
+        markCustom();
+      }));
+      if (openId === item.id) li.appendChild(renderEditor(item));
+      el.appendChild(li);
+    });
+    if (!state.items.length) {
+      el.innerHTML = `<li style="color:var(--muted);font-size:14px;padding:14px 4px">The run is empty — add some exercises or pick a preset.</li>`;
+    }
+  }
+
+  function renderEditor(item) {
+    const def = EXERCISES[item.type];
+    const box = document.createElement("div");
+    box.className = "item-edit";
+    const p = document.createElement("p");
+    p.textContent = def.about;
+    box.appendChild(p);
+    const grid = document.createElement("div");
+    grid.className = "params";
+    for (const d of def.params) {
+      const wrap = document.createElement("div");
+      wrap.className = "param";
+      wrap.innerHTML = `<label>${d.label}</label>`;
+      if (d.type === "choice") {
+        const sc = document.createElement("div");
+        sc.className = "seg-ctl";
+        for (const [val, lab] of d.options) {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.textContent = lab;
+          if (item.params[d.k] === val) b.className = "on";
+          b.addEventListener("click", () => { item.params[d.k] = val; markCustom(); });
+          sc.appendChild(b);
+        }
+        wrap.appendChild(sc);
+      } else {
+        const st = document.createElement("div");
+        st.className = "stepper";
+        const show = (v) => (d.unit === "s" && v >= 60 && d.k === "secs" ? fmt(v) : `${v}${d.unit ? (d.unit === "s" ? "s" : " " + d.unit) : ""}`);
+        st.innerHTML = `<button type="button" aria-label="Less">−</button><output>${show(item.params[d.k])}</output><button type="button" aria-label="More">+</button>`;
+        const [minus, plus] = st.querySelectorAll("button");
+        const bump = (dir) => {
+          const v = +(item.params[d.k] + dir * d.step).toFixed(2);
+          item.params[d.k] = Math.min(d.max, Math.max(d.min, v));
+          markCustom();
+        };
+        minus.addEventListener("click", () => bump(-1));
+        plus.addEventListener("click", () => bump(1));
+        wrap.appendChild(st);
+      }
+      grid.appendChild(wrap);
+    }
+    box.appendChild(grid);
+    return box;
+  }
+
+  function renderLibrary() {
+    const el = $("library");
+    el.innerHTML = "";
+    for (const [type, def] of Object.entries(EXERCISES)) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "lib-item";
+      b.innerHTML = `<span class="swatch" style="background:${def.color}"></span><div><b>${def.name} <span style="display:inline;color:var(--faint)">· ${fmt(itemDuration(makeItem(type)))}</span></b><span>${def.blurb}</span></div><span class="plus">+</span>`;
+      b.addEventListener("click", () => {
+        const it = makeItem(type);
+        state.items.push(it);
+        openId = it.id;
+        el.classList.add("hidden");
+        markCustom();
+      });
+      el.appendChild(b);
+    }
+  }
+
+  function markCustom() { state.custom = true; commit(); }
+
+  function commit() {
+    save();
+    renderPresets();
+    renderRun();
+    const total = runDuration(state.items);
+    const preset = PRESETS.find((p) => p.id === state.presetId);
+    $("runLabel").textContent = state.custom ? `Run · custom${preset ? " (from " + preset.name + ")" : ""}` : `Run · ${preset ? preset.name : ""}`;
+    $("total").textContent = `${fmt(total)} / ${fmt(TARGET)}`;
+    $("total").classList.toggle("off", Math.abs(total - TARGET) > 15);
+    $("startDur").textContent = fmt(total);
+    $("startBtn").disabled = !state.items.length;
+    $("resetBtn").classList.toggle("hidden", !state.custom);
+  }
+
+  $("addBtn").addEventListener("click", () => {
+    const lib = $("library");
+    lib.classList.toggle("hidden");
+    if (!lib.classList.contains("hidden")) renderLibrary();
+  });
+  $("resetBtn").addEventListener("click", () => {
+    state.items = presetItems(state.presetId);
+    state.custom = false;
+    openId = null;
+    commit();
+  });
+  // Adjust (or add) a closing Stillness so the run lands on 15:00.
+  $("fitBtn").addEventListener("click", () => {
+    let last = state.items[state.items.length - 1];
+    if (!last || last.type !== "rest") { last = makeItem("rest", { secs: 20 }); state.items.push(last); }
+    const others = runDuration(state.items) - last.params.secs;
+    const want = TARGET - others;
+    const lim = EXERCISES.rest.params[0];
+    last.params.secs = Math.min(lim.max, Math.max(lim.min, Math.round(want)));
+    markCustom();
+  });
+
+  $("optSound").checked = state.sound !== false;
+  $("optVibe").checked = !!state.vibe;
+  $("optSound").addEventListener("change", (e) => { state.sound = e.target.checked; save(); });
+  $("optVibe").addEventListener("change", (e) => { state.vibe = e.target.checked; save(); });
+
+  // =====================================================================
+  //  Timeline + engine
+  // =====================================================================
+  function buildTimeline(items) {
+    const segments = [];
+    const exercises = [];
+    let t = 0;
+    items.forEach((item, ei) => {
+      const def = EXERCISES[item.type];
+      const ex = { index: ei, id: item.id, type: item.type, name: def.name, color: def.color, start: t, end: t, params: Object.assign({}, item.params), segStart: segments.length };
+      for (const s of itemSegments(item)) {
+        s.exercise = ei;
+        s.index = segments.length;
+        s.start = t;
+        t += s.dur;
+        s.end = t;
+        segments.push(s);
+      }
+      ex.end = t;
+      ex.segEnd = segments.length;
+      exercises.push(ex);
+    });
+    return { segments, exercises, duration: t };
+  }
+
+  // A tiny event emitter, exposed for future audio-guide sync.
+  const listeners = {};
+  const on = (ev, fn) => ((listeners[ev] = listeners[ev] || []).push(fn), () => off(ev, fn));
+  const off = (ev, fn) => { listeners[ev] = (listeners[ev] || []).filter((f) => f !== fn); };
+  const emit = (ev, data) => (listeners[ev] || []).forEach((fn) => { try { fn(data); } catch (e) { console.error(e); } });
+
+  const engine = {
+    tl: null,
+    playing: false,
+    offset: 0,      // elapsed seconds banked while paused
+    startedAt: 0,   // performance.now() when last resumed
+    segIdx: -1,
+    stroke: -1,
+    tipKey: "",
+    elapsed() { return this.playing ? this.offset + (performance.now() - this.startedAt) / 1000 : this.offset; },
+    load(tl) { this.tl = tl; this.offset = 0; this.segIdx = -1; this.stroke = -1; this.playing = false; },
+    play() {
+      if (this.playing || !this.tl) return;
+      if (this.offset >= this.tl.duration) this.seek(0);
+      this.startedAt = performance.now();
+      this.playing = true;
+      emit("play", { time: this.offset });
+    },
+    pause() {
+      if (!this.playing) return;
+      this.offset = this.elapsed();
+      this.playing = false;
+      emit("pause", { time: this.offset });
+    },
+    seek(t) {
+      t = Math.max(0, Math.min(this.tl.duration, t));
+      this.offset = t;
+      if (this.playing) this.startedAt = performance.now();
+      this.segIdx = -1;
+      this.stroke = -1;
+      emit("seek", { time: t });
+      tick();
+    },
+    segmentAt(t) {
+      const S = this.tl.segments;
+      for (let i = 0; i < S.length; i++) if (t < S[i].end) return i;
+      return S.length - 1;
+    },
+  };
+
+  // =====================================================================
+  //  Sound (pace clicks + chimes) — small WebAudio synth
+  // =====================================================================
+  let actx = null;
+  function audio() {
+    if (!actx) {
+      const C = window.AudioContext || window.webkitAudioContext;
+      if (C) actx = new C();
+    }
+    if (actx && actx.state === "suspended") actx.resume();
+    return actx;
+  }
+  function tone(freq, dur, gain, type, glideTo) {
+    if (!state.sound) return;
+    const a = audio();
+    if (!a) return;
+    const t = a.currentTime;
+    const o = a.createOscillator();
+    const g = a.createGain();
+    o.type = type || "sine";
+    o.frequency.setValueAtTime(freq, t);
+    if (glideTo) o.frequency.exponentialRampToValueAtTime(glideTo, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(a.destination);
+    o.start(t);
+    o.stop(t + dur + 0.02);
+  }
+  const click = () => tone(190, 0.06, 0.22, "triangle", 90);
+  const chime = (kind) => {
+    if (kind === "inhale") tone(440, 0.9, 0.08, "sine", 554);
+    else if (kind === "exhale") tone(554, 1.1, 0.08, "sine", 392);
+    else if (kind === "hold-in" || kind === "hold-out") tone(660, 1.2, 0.06);
+    else if (kind === "pump" || kind === "bellows") tone(880, 0.25, 0.09);
+  };
+  const bell = () => { tone(528, 3.2, 0.12); setTimeout(() => tone(792, 2.6, 0.05), 40); };
+
+  // =====================================================================
+  //  Player UI
+  // =====================================================================
+  const orb = $("orb");
+  const phaseEl = $("phase"), bigEl = $("big"), subEl = $("sub"), guideEl = $("guide");
+  let wakeLock = null;
+  let raf = 0;
+
+  const ease = (x) => 0.5 - 0.5 * Math.cos(Math.PI * Math.min(1, Math.max(0, x)));
+  const MIN = 0.38, MAX = 0.94;
+
+  function orbScale(s, local, t) {
+    switch (s.kind) {
+      case "inhale": return MIN + (MAX - MIN) * ease(local / s.dur);
+      case "exhale": return MAX - (MAX - MIN) * ease(local / s.dur);
+      case "hold-in": return MAX - 0.012 + 0.012 * Math.sin(t * 1.4);
+      case "hold-out": return MIN + 0.012 * Math.sin(t * 1.4);
+      case "pump": {
+        // sharp exhale snap (first ~25% of the stroke), then passive refill
+        const ph = (local % s.period) / s.period;
+        const snap = ph < 0.22 ? ease(ph / 0.22) : 1 - ease((ph - 0.22) / 0.78);
+        return 0.7 - 0.2 * snap;
+      }
+      case "bellows": {
+        const ph = (local % s.period) / s.period;
+        return 0.66 + 0.2 * Math.sin(ph * Math.PI * 2);
+      }
+      default: return 0.56 + 0.06 * Math.sin(t * (2 * Math.PI / 9)); // idle ~9 s cycle
+    }
+  }
+
+  function setGuide(html, cls) {
+    const key = cls + "|" + html;
+    if (engine.tipKey === key) return;
+    engine.tipKey = key;
+    guideEl.classList.add("fade");
+    clearTimeout(setGuide.t);
+    setGuide.t = setTimeout(() => {
+      guideEl.innerHTML = html;
+      guideEl.className = "guide" + (cls ? " " + cls : "");
+    }, 250);
+  }
+
+  function renderTimeline() {
+    const el = $("timeline");
+    el.innerHTML = "";
+    const { exercises, duration } = engine.tl;
+    for (const ex of exercises) {
+      const c = document.createElement("div");
+      c.className = "chunk";
+      c.style.flex = `${ex.end - ex.start} 1 0`;
+      c.title = ex.name;
+      c.innerHTML = `<i style="background:${ex.color}"></i>`;
+      c.addEventListener("click", () => engine.seek(ex.start));
+      el.appendChild(c);
+    }
+  }
+
+  function tick() {
+    const tl = engine.tl;
+    if (!tl) return;
+    let t = engine.elapsed();
+    if (t >= tl.duration) {
+      finish();
+      return;
+    }
+    const i = engine.segmentAt(t);
+    const s = tl.segments[i];
+    const ex = tl.exercises[s.exercise];
+    const def = EXERCISES[ex.type];
+    const local = t - s.start;
+
+    // --- events ---
+    if (i !== engine.segIdx) {
+      const prev = engine.segIdx >= 0 ? tl.segments[engine.segIdx] : null;
+      engine.segIdx = i;
+      engine.stroke = -1;
+      if (!prev || prev.exercise !== s.exercise) emit("exercise", { exercise: ex, time: t });
+      emit("segment", { segment: s, exercise: ex, time: t });
+      if (engine.playing) {
+        chime(s.kind);
+        if (state.vibe && navigator.vibrate && s.kind !== "intro") navigator.vibrate(40);
+      }
+      document.documentElement.style.setProperty("--c", ex.color);
+      $("pEx").textContent = ex.name;
+      $("pCount").textContent = `${s.exercise + 1} of ${tl.exercises.length}` + (s.side ? ` · ${s.side === "L" ? "left" : "right"} nostril` : "");
+      phaseEl.textContent = s.kind === "intro" ? "Up next" : s.label;
+      subEl.textContent = s.sub || "";
+    }
+    if (s.kind === "pump" || s.kind === "bellows") {
+      const n = Math.min(s.strokes - 1, Math.floor(local / s.period));
+      if (n !== engine.stroke) {
+        engine.stroke = n;
+        emit("stroke", { segment: s, n: n + 1, of: s.strokes, time: t });
+        if (engine.playing) click();
+      }
+      bigEl.innerHTML = `${n + 1}<small> / ${s.strokes}</small>`;
+    } else {
+      bigEl.textContent = Math.ceil(s.dur - local - 1e-6);
+    }
+
+    // --- guide text: intro shows the explanation; otherwise rotate tips ---
+    if (s.kind === "intro") {
+      setGuide(`<span class="next">${def.name}</span>${def.about}`, "intro");
+    } else {
+      const isHold = s.kind === "hold-in" || s.kind === "hold-out";
+      let tips = isHold && def.holdTips ? def.holdTips : def.tips;
+      if (!def.intro) tips = [def.about].concat(tips);
+      const exLocal = isHold ? local : t - ex.start - (def.intro || 0);
+      const k = Math.floor(exLocal / 9) % tips.length;
+      setGuide(tips[k], "");
+    }
+
+    // --- visuals ---
+    orb.style.transform = `scale(${orbScale(s, local, t).toFixed(4)})`;
+    const chunks = $("timeline").children;
+    for (let j = 0; j < chunks.length; j++) {
+      const e = tl.exercises[j];
+      const f = t >= e.end ? 1 : t <= e.start ? 0 : (t - e.start) / (e.end - e.start);
+      chunks[j].firstChild.style.width = (f * 100).toFixed(2) + "%";
+    }
+    $("pElapsed").textContent = fmt(t);
+    $("pRemain").textContent = "-" + fmt(tl.duration - t);
+    emit("tick", { time: t, segment: s, local });
+  }
+
+  let running = false;
+  function loop() {
+    if (!running) return;
+    tick();
+    if (running) raf = requestAnimationFrame(loop);
+  }
+
+  const PAUSE_ICON = '<path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/>';
+  const PLAY_ICON = '<path d="M7 4.5v15l13-7.5z"/>';
+  function syncPlayBtn() {
+    $("playIcon").innerHTML = engine.playing ? PAUSE_ICON : PLAY_ICON;
+    $("playBtn").setAttribute("aria-label", engine.playing ? "Pause" : "Play");
+  }
+
+  async function requestWake() {
+    try { if ("wakeLock" in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", () => (wakeLock = null)); } } catch (_) {}
+  }
+  function releaseWake() { try { wakeLock && wakeLock.release(); } catch (_) {} wakeLock = null; }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && engine.playing) requestWake(); });
+
+  function start() {
+    if (!state.items.length) return;
+    audio();
+    engine.load(buildTimeline(state.items));
+    $("setup").classList.add("hidden");
+    $("startBar").classList.add("hidden");
+    $("player").classList.remove("hidden");
+    showDone(false);
+    renderTimeline();
+    engine.tipKey = "";
+    engine.play();
+    syncPlayBtn();
+    requestWake();
+    cancelAnimationFrame(raf);
+    running = true;
+    loop();
+    emit("start", { timeline: engine.tl });
+  }
+
+  function showDone(done) {
+    $("stage").classList.toggle("hidden", done);
+    $("controls").classList.toggle("hidden", done);
+    $("donePanel").classList.toggle("hidden", !done);
+  }
+
+  function finish() {
+    if (!running) return;
+    running = false;
+    engine.pause();
+    engine.offset = engine.tl.duration;
+    cancelAnimationFrame(raf);
+    releaseWake();
+    bell();
+    emit("end", { time: engine.tl.duration });
+    showDone(true);
+    $("pRemain").textContent = "-0:00";
+    $("pElapsed").textContent = fmt(engine.tl.duration);
+    const chunks = $("timeline").children;
+    for (const c of chunks) c.firstChild.style.width = "100%";
+  }
+
+  function exit() {
+    running = false;
+    engine.pause();
+    cancelAnimationFrame(raf);
+    releaseWake();
+    emit("stop", { time: engine.elapsed() });
+    $("player").classList.add("hidden");
+    $("setup").classList.remove("hidden");
+    $("startBar").classList.remove("hidden");
+  }
+
+  function curExercise() { return engine.tl.segments[engine.segmentAt(engine.elapsed())].exercise; }
+
+  $("startBtn").addEventListener("click", start);
+  $("againBtn").addEventListener("click", start);
+  $("doneBtn").addEventListener("click", exit);
+  $("closeBtn").addEventListener("click", exit);
+  $("playBtn").addEventListener("click", () => { audio(); engine.playing ? engine.pause() : engine.play(); syncPlayBtn(); engine.playing ? requestWake() : releaseWake(); });
+  $("nextBtn").addEventListener("click", () => {
+    const e = curExercise();
+    const nx = engine.tl.exercises[e + 1];
+    engine.seek(nx ? nx.start : engine.tl.duration);
+  });
+  $("prevBtn").addEventListener("click", () => {
+    const e = curExercise();
+    const ex = engine.tl.exercises[e];
+    // restart current exercise, or go to previous if we're near its start
+    const target = engine.elapsed() - ex.start > 3 || e === 0 ? ex.start : engine.tl.exercises[e - 1].start;
+    engine.seek(target);
+  });
+  window.addEventListener("keydown", (e) => {
+    if ($("player").classList.contains("hidden")) return;
+    if (e.code === "Space") { e.preventDefault(); $("playBtn").click(); }
+    else if (e.key === "ArrowRight") $("nextBtn").click();
+    else if (e.key === "ArrowLeft") $("prevBtn").click();
+    else if (e.key === "Escape") exit();
+  });
+
+  // =====================================================================
+  //  Public hook for audio guides (to come)
+  //
+  //  window.breath.on(event, fn) — events:
+  //    start    { timeline }
+  //    exercise { exercise, time }
+  //    segment  { segment, exercise, time }   segment.cue is a stable key
+  //    stroke   { segment, n, of, time }
+  //    tick     { time, segment, local }      every animation frame
+  //    play / pause / seek / stop / end { time }
+  //  window.breath.time() — current session time in seconds; audio players
+  //  can drift-correct against it, and seek() to align after scrubbing.
+  // =====================================================================
+  window.breath = {
+    on, off,
+    exercises: EXERCISES,
+    presets: PRESETS,
+    timeline: () => engine.tl || buildTimeline(state.items),
+    time: () => engine.elapsed(),
+    play: () => { engine.play(); syncPlayBtn(); },
+    pause: () => { engine.pause(); syncPlayBtn(); },
+    seek: (t) => engine.seek(t),
+  };
+
+  commit();
+})();
+</script>
+</body>
+</html>
