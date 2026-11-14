@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#14231b" />
+<title>Mong Mongan</title>
+<style>
+  :root {
+    --bg: #14231b;
+    --panel: #1c3026;
+    --panel-2: #26402f;
+    --line: #34503f;
+    --ink: #f3eedf;
+    --muted: #a9b7a8;
+    --accent: #f2b705;
+    --win: #49d17a;
+    --lose: #ff6b5e;
+    --tile: #f6efdc;
+    --tile-ink: #2a2a2a;
+    --wood: #6b4425;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+  main { max-width: 560px; margin: 0 auto; padding: 12px 16px 32px; display: flex; flex-direction: column; gap: 14px; }
+
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  h1 { margin: 0; font-size: 20px; letter-spacing: 0.01em; }
+  .bank { display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; font-size: 15px; }
+  .bank .chip { width: 18px; height: 18px; }
+  .bank b { font-size: 18px; }
+  .bank button { font-size: 12px; padding: 4px 8px; }
+
+  /* ---------- board ---------- */
+  .board-wrap { position: relative; margin: 0 auto; }
+  .board-frame {
+    position: relative; width: 100%; height: 100%;
+    border-radius: 18px; padding: 10px;
+    background: linear-gradient(145deg, #8a5a31, var(--wood) 55%, #4d2f18);
+    box-shadow: 0 10px 30px rgba(0,0,0,.45), inset 0 2px 0 rgba(255,255,255,.15);
+  }
+  .board-inner { position: relative; width: 100%; height: 100%; border-radius: 10px; overflow: hidden; background: #2d6a46; }
+  canvas.surface, canvas.balls { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  canvas.balls { pointer-events: none; z-index: 3; }
+  .grid { position: absolute; inset: 0; display: grid; z-index: 2; }
+  .cell {
+    position: relative; display: flex; align-items: center; justify-content: center;
+    border: 0; padding: 0; margin: 0; background: transparent; cursor: pointer; color: inherit;
+    font: inherit; user-select: none; -webkit-user-select: none;
+  }
+  .flat .board-inner { background: #2d6a46; }
+  .flat .grid { gap: 8px; padding: 8px; }
+  .flat .cell { background: var(--tile); border-radius: 10px; box-shadow: inset 0 -3px 0 rgba(0,0,0,.12); transition: transform 120ms ease, box-shadow 160ms ease; }
+  .flat .cell:active { transform: scale(0.97); }
+  .flat canvas.surface { display: none; }
+  .tray .cell { border-radius: 0; }
+  .sym { width: 58%; height: 58%; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+  .sym svg { width: 100%; height: 100%; overflow: visible; }
+  .sym .emoji { font-size: min(13vw, 64px); line-height: 1; }
+  .board-wrap.n12 .sym .emoji { font-size: min(10vw, 48px); }
+  .tray .sym { opacity: .92; filter: drop-shadow(0 1px 0 rgba(255,255,255,.25)); }
+  .tray .sym svg { filter: drop-shadow(0 2px 2px rgba(0,0,0,.35)); }
+
+  .cell.hit { z-index: 1; }
+  .flat .cell.hit { background: #fff7d0; box-shadow: 0 0 0 3px var(--accent), 0 0 18px rgba(242,183,5,.55); }
+  .tray .cell.hit::after {
+    content: ""; position: absolute; inset: 6%; border-radius: 50%;
+    box-shadow: 0 0 0 3px var(--accent), 0 0 22px rgba(242,183,5,.7); pointer-events: none;
+  }
+  .badge {
+    position: absolute; top: 6px; right: 6px; min-width: 26px; height: 26px; padding: 0 7px;
+    border-radius: 13px; background: var(--accent); color: #2a1d00; font-weight: 800; font-size: 14px;
+    display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0,0,0,.35);
+    animation: pop 260ms cubic-bezier(.3,1.6,.5,1);
+  }
+  .stake {
+    position: absolute; left: 6px; bottom: 6px; display: flex; align-items: center; gap: 3px;
+    font-weight: 800; font-size: 13px; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.7);
+    animation: pop 200ms cubic-bezier(.3,1.6,.5,1);
+  }
+  .flat .stake { color: var(--tile-ink); text-shadow: none; }
+  .stake .chip { width: 22px; height: 22px; }
+  .board-wrap.n12 .stake .chip { width: 18px; height: 18px; }
+  .board-wrap.n12 .badge { min-width: 22px; height: 22px; font-size: 12px; top: 4px; right: 4px; }
+  @keyframes pop { from { transform: scale(.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+  /* ---------- dice ---------- */
+  .dice { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; min-height: 64px; }
+  .die {
+    width: 58px; height: 58px; border-radius: 13px; background: var(--tile);
+    display: flex; align-items: center; justify-content: center; position: relative;
+    box-shadow: 0 4px 0 #cfc3a2, 0 8px 14px rgba(0,0,0,.4);
+  }
+  .die .sym { width: 70%; height: 70%; }
+  .die .sym .emoji { font-size: 34px; }
+  .die.d12 { clip-path: polygon(50% 0, 98% 30%, 88% 95%, 12% 95%, 2% 30%); border-radius: 0; box-shadow: none; padding-top: 6px; background: linear-gradient(#fbf6e8, #e7dcbd); }
+  .die.rolling { animation: tumble 260ms linear infinite; }
+  .die.landed { animation: land 280ms cubic-bezier(.3,1.6,.5,1); }
+  @keyframes tumble {
+    0% { transform: translateY(0) rotate(0deg); }
+    25% { transform: translateY(-8px) rotate(80deg); }
+    50% { transform: translateY(0) rotate(180deg); }
+    75% { transform: translateY(-5px) rotate(270deg); }
+    100% { transform: translateY(0) rotate(360deg); }
+  }
+  @keyframes land { from { transform: scale(1.18); } to { transform: scale(1); } }
+
+  /* ---------- result + controls ---------- */
+  .result { min-height: 24px; text-align: center; font-size: 15px; color: var(--muted); }
+  .result b.win { color: var(--win); }
+  .result b.lose { color: var(--lose); }
+  .actions { display: flex; gap: 10px; }
+  button { font: inherit; color: inherit; }
+  .btn {
+    border: 1px solid var(--line); background: var(--panel); border-radius: 12px; padding: 10px 14px; cursor: pointer;
+  }
+  .btn:hover { background: var(--panel-2); }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .roll {
+    flex: 1; font-size: 19px; font-weight: 800; padding: 14px; border: 0; border-radius: 14px; cursor: pointer;
+    background: var(--accent); color: #2a1d00; box-shadow: 0 4px 0 #b88a00;
+  }
+  .roll:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 2px 0 #b88a00; }
+  .roll:disabled { opacity: .55; cursor: default; }
+  .hint { font-size: 12.5px; color: var(--muted); text-align: center; margin-top: -4px; }
+
+  .settings { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: grid; gap: 10px; }
+  .row { display: grid; grid-template-columns: 88px 1fr; align-items: center; gap: 10px; }
+  .row > span { font-size: 13px; color: var(--muted); }
+  .seg { display: flex; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 2px; }
+  .seg button { flex: 1; height: 34px; border: 0; background: transparent; border-radius: 8px; cursor: pointer; font-size: 14px; color: var(--muted); white-space: nowrap; }
+  .seg button.on { background: var(--panel-2); color: var(--ink); font-weight: 700; }
+  .reshape { justify-self: start; font-size: 13px; padding: 7px 12px; }
+
+  .history { display: flex; flex-direction: column; gap: 6px; }
+  .history h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+  .hist-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 10px; background: var(--panel); font-size: 13px; }
+  .hist-row .mini { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; }
+  .hist-row .mini .emoji { font-size: 18px; }
+  .hist-row .mini svg { width: 18px; height: 18px; }
+  .hist-row .delta { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 700; }
+  .hist-row .delta.win { color: var(--win); }
+  .hist-row .delta.lose { color: var(--lose); }
+  .hist-row .delta.none { color: var(--muted); font-weight: 400; }
+  @media (max-width: 380px) { .row { grid-template-columns: 1fr; gap: 4px; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Mong Mongan</h1>
+    <div class="bank" title="Chips">
+      <svg class="chip" viewBox="0 0 24 24"><use href="#chip" /></svg>
+      <b id="bank">50</b>
+      <button class="btn" id="refill" hidden>Refill</button>
+    </div>
+  </header>
+
+  <div class="board-wrap" id="boardWrap">
+    <div class="board-frame">
+      <div class="board-inner">
+        <canvas class="surface" id="surface"></canvas>
+        <div class="grid" id="grid"></div>
+        <canvas class="balls" id="ballsCanvas"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="dice" id="dice"></div>
+  <div class="result" id="result">Tap squares to place chips, then roll.</div>
+
+  <div class="actions">
+    <button class="btn" id="clearBets">Clear bets</button>
+    <button class="roll" id="roll">Roll</button>
+  </div>
+  <div class="hint">Tap a square to bet a chip · long-press or right-click to take one back</div>
+
+  <section class="settings">
+    <div class="row"><span>Squares</span><div class="seg" data-key="size"><button data-v="6">6</button><button data-v="12">12</button></div></div>
+    <div class="row"><span>Symbols</span><div class="seg" data-key="theme"><button data-v="animals">Animals</button><button data-v="shapes">Shapes</button></div></div>
+    <div class="row"><span>Roll with</span><div class="seg" data-key="mode"><button data-v="dice">Dice</button><button data-v="ball">Ball</button></div></div>
+    <div class="row" id="diceRow"><span>Dice</span><div class="seg" data-key="dice"><button data-v="3">3</button><button data-v="4">4</button><button data-v="5">5</button><button data-v="6">6</button></div></div>
+    <div class="row" id="ballRow"><span>Balls</span><div class="seg" data-key="balls"><button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button></div></div>
+    <button class="btn reshape" id="reshape">Reshape the board</button>
+  </section>
+
+  <section class="history" id="historyWrap" hidden>
+    <h2>Last rolls</h2>
+    <div id="history"></div>
+  </section>
+</main>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="chip" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="11" fill="#d23c3c" stroke="#7a1515" stroke-width="1" />
+      <circle cx="12" cy="12" r="7.5" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="3 2.9" />
+      <circle cx="12" cy="12" r="5" fill="#e85a5a" />
+    </symbol>
+  </defs>
+</svg>
+
+<script>
+(() => {
+  // ---------------------------------------------------------------- symbols
+  const ANIMALS = [
+    { id: "elephant", e: "🐘", name: "Elephant" }, { id: "lion", e: "🦁", name: "Lion" },
+    { id: "monkey", e: "🐒", name: "Monkey" }, { id: "turtle", e: "🐢", name: "Turtle" },
+    { id: "rooster", e: "🐓", name: "Rooster" }, { id: "fish", e: "🐟", name: "Fish" },
+    { id: "frog", e: "🐸", name: "Frog" }, { id: "owl", e: "🦉", name: "Owl" },
+    { id: "rabbit", e: "🐇", name: "Rabbit" }, { id: "snake", e: "🐍", name: "Snake" },
+    { id: "crab", e: "🦀", name: "Crab" }, { id: "horse", e: "🐎", name: "Horse" },
+  ];
+  const COLORS = [
+    { id: "red", c: "#e23b3b", d: "#8e1717", name: "Red" },
+    { id: "blue", c: "#2f6fde", d: "#183f86", name: "Blue" },
+    { id: "green", c: "#2aa84a", d: "#13602a", name: "Green" },
+    { id: "yellow", c: "#f4bd12", d: "#8f6a00", name: "Yellow" },
+  ];
+  const SHAPES = ["triangle", "square", "plus"];
+  const shapePath = {
+    triangle: '<path d="M50 8 L94 88 L6 88 Z" />',
+    square: '<rect x="12" y="12" width="76" height="76" rx="4" />',
+    plus: '<path d="M36 6 H64 V36 H94 V64 H64 V94 H36 V64 H6 V36 H36 Z" />',
+  };
+
+  function symbolsFor(theme, size) {
+    if (theme === "animals") return ANIMALS.slice(0, size).map(a => ({ ...a, kind: "emoji" }));
+    const colors = COLORS.slice(0, size / 3);
+    const out = [];
+    for (const col of colors) for (const sh of SHAPES)
+      out.push({ id: col.id + "-" + sh, kind: "shape", shape: sh, color: col, name: col.name + " " + sh });
+    return out;
+  }
+  function symHTML(s) {
+    if (s.kind === "emoji") return `<span class="emoji" role="img" aria-label="${s.name}">${s.e}</span>`;
+    return `<svg viewBox="0 0 100 100" role="img" aria-label="${s.name}"><g fill="${s.color.c}" stroke="${s.color.d}" stroke-width="5" stroke-linejoin="round">${shapePath[s.shape]}</g></svg>`;
+  }
+
+  // ---------------------------------------------------------------- state
+  const LS = "mong-mongan.v1";
+  const defaults = { size: 6, theme: "animals", mode: "dice", dice: 3, balls: 1, bank: 50, seed: 0 };
+  let st = { ...defaults };
+  try { Object.assign(st, JSON.parse(localStorage.getItem(LS) || "{}")); } catch {}
+  if (!st.seed) st.seed = (Math.random() * 2 ** 31) | 0;
+  const save = () => { try { localStorage.setItem(LS, JSON.stringify(st)); } catch {} };
+
+  let symbols = [];
+  let bets = [];          // chips per square
+  let rolling = false;
+  let history = [];
+
+  const $ = id => document.getElementById(id);
+  const grid = $("grid"), wrap = $("boardWrap"), diceEl = $("dice"), resultEl = $("result");
+  const surface = $("surface"), ballsCanvas = $("ballsCanvas");
+
+  const cols = 3;
+  const rowsOf = () => st.size / cols;
+
+  // ---------------------------------------------------------------- layout
+  function layout() {
+    const rows = rowsOf();
+    const maxW = Math.min(document.querySelector("main").clientWidth - 32, 528);
+    const maxH = Math.max(260, window.innerHeight * (st.size === 12 ? 0.66 : 0.48));
+    const frame = 20; // board-frame padding * 2
+    let w = maxW;
+    let h = (w - frame) * rows / cols + frame;
+    if (h > maxH) { h = maxH; w = (h - frame) * cols / rows + frame; }
+    wrap.style.width = w + "px";
+    wrap.style.height = h + "px";
+    sizeCanvases();
+  }
+
+  function buildBoard() {
+    symbols = symbolsFor(st.theme, st.size);
+    bets = symbols.map(() => 0);
+    wrap.classList.toggle("n12", st.size === 12);
+    wrap.classList.toggle("flat", st.mode === "dice");
+    wrap.classList.toggle("tray", st.mode === "ball");
+    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    grid.style.gridTemplateRows = `repeat(${rowsOf()}, 1fr)`;
+    grid.innerHTML = symbols.map((s, i) => `<button class="cell" data-i="${i}" aria-label="${s.name}"><div class="sym">${symHTML(s)}</div></button>`).join("");
+    $("diceRow").hidden = st.mode !== "dice";
+    $("ballRow").hidden = st.mode !== "ball";
+    $("reshape").hidden = st.mode !== "ball";
+    diceEl.hidden = st.mode !== "dice";
+    diceEl.innerHTML = "";
+    balls = [];
+    resultEl.textContent = "Tap squares to place chips, then roll.";
+    makeTerrain();
+    layout();
+    drawSurface();
+    drawBalls();
+    renderBank();
+    syncSegs();
+  }
+
+  function syncSegs() {
+    document.querySelectorAll(".seg").forEach(seg => {
+      const k = seg.dataset.key;
+      seg.querySelectorAll("button").forEach(b => b.classList.toggle("on", String(st[k]) === b.dataset.v));
+    });
+  }
+
+  // ---------------------------------------------------------------- bets
+  function renderCell(i) {
+    const cell = grid.children[i];
+    let stake = cell.querySelector(".stake");
+    if (bets[i] > 0) {
+      if (!stake) { stake = document.createElement("div"); stake.className = "stake"; cell.appendChild(stake); }
+      stake.innerHTML = `<svg class="chip" viewBox="0 0 24 24"><use href="#chip" /></svg>${bets[i] > 1 ? bets[i] : ""}`;
+    } else if (stake) stake.remove();
+  }
+  function renderBank() {
+    const staked = bets.reduce((a, b) => a + b, 0);
+    $("bank").textContent = st.bank - staked;
+    $("refill").hidden = st.bank > 0;
+  }
+  function clearResult() {
+    grid.querySelectorAll(".cell").forEach(c => { c.classList.remove("hit"); c.querySelector(".badge")?.remove(); });
+  }
+  function addBet(i, d) {
+    if (rolling) return;
+    const free = st.bank - bets.reduce((a, b) => a + b, 0);
+    if (d > 0 && free <= 0) { resultEl.textContent = "No chips left to bet."; return; }
+    if (d < 0 && bets[i] === 0) return;
+    clearResult();
+    bets[i] += d;
+    renderCell(i);
+    renderBank();
+    if (navigator.vibrate) navigator.vibrate(8);
+  }
+
+  let pressTimer = 0, longPressed = false;
+  grid.addEventListener("pointerdown", e => {
+    const cell = e.target.closest(".cell"); if (!cell) return;
+    longPressed = false;
+    clearTimeout(pressTimer);
+    pressTimer = setTimeout(() => { longPressed = true; addBet(+cell.dataset.i, -1); }, 480);
+  });
+  ["pointerup", "pointerleave", "pointercancel"].forEach(t => grid.addEventListener(t, () => clearTimeout(pressTimer)));
+  grid.addEventListener("click", e => {
+    const cell = e.target.closest(".cell"); if (!cell) return;
+    if (longPressed) { longPressed = false; return; }
+    addBet(+cell.dataset.i, 1);
+  });
+  grid.addEventListener("contextmenu", e => {
+    const cell = e.target.closest(".cell"); if (!cell) return;
+    e.preventDefault(); clearTimeout(pressTimer);
+    if (!longPressed) addBet(+cell.dataset.i, -1);
+  });
+
+  $("clearBets").onclick = () => { if (rolling) return; bets = bets.map(() => 0); bets.forEach((_, i) => renderCell(i)); renderBank(); };
+  $("refill").onclick = () => { st.bank = 50; save(); renderBank(); resultEl.textContent = "Fresh stack of 50 chips."; };
+
+  // ---------------------------------------------------------------- settle a roll
+  function finish(outcomes) {
+    // outcomes: array of symbol indices
+    const counts = symbols.map(() => 0);
+    outcomes.forEach(i => counts[i]++);
+    clearResult();
+    counts.forEach((n, i) => {
+      if (!n) return;
+      const cell = grid.children[i];
+      cell.classList.add("hit");
+      const b = document.createElement("div"); b.className = "badge"; b.textContent = "×" + n;
+      cell.appendChild(b);
+    });
+
+    const staked = bets.reduce((a, b) => a + b, 0);
+    let delta = 0;
+    bets.forEach((b, i) => { if (b) delta += counts[i] ? b * counts[i] : -b; });
+    st.bank += delta; save();
+
+    const shown = counts.map((n, i) => n ? `${symbols[i].kind === "emoji" ? symbols[i].e : symbols[i].name.toLowerCase()} ×${n}` : null).filter(Boolean).join(", ");
+    if (!staked) resultEl.innerHTML = shown;
+    else if (delta > 0) resultEl.innerHTML = `${shown} — <b class="win">won ${delta}</b>`;
+    else if (delta < 0) resultEl.innerHTML = `${shown} — <b class="lose">lost ${-delta}</b>`;
+    else resultEl.innerHTML = `${shown} — broke even`;
+
+    history.unshift({ outcomes: outcomes.slice(), syms: symbols, delta, staked });
+    history = history.slice(0, 8);
+    renderHistory();
+
+    // bets stay on the board for the next roll, trimmed if the bank can't cover them
+    let free = st.bank;
+    bets = bets.map(b => { const k = Math.min(b, Math.max(0, free)); free -= k; return k; });
+    bets.forEach((_, i) => renderCell(i));
+    renderBank();
+    rolling = false;
+    $("roll").disabled = false;
+    if (navigator.vibrate) navigator.vibrate(delta > 0 ? [20, 40, 20] : 15);
+  }
+
+  function renderHistory() {
+    $("historyWrap").hidden = !history.length;
+    $("history").innerHTML = history.map(h => {
+      const minis = h.outcomes.map(i => `<span class="mini">${symHTML(h.syms[i])}</span>`).join("");
+      const cls = !h.staked ? "none" : h.delta > 0 ? "win" : h.delta < 0 ? "lose" : "none";
+      const txt = !h.staked ? "no bet" : (h.delta > 0 ? "+" : "") + h.delta;
+      return `<div class="hist-row">${minis}<span class="delta ${cls}">${txt}</span></div>`;
+    }).join("");
+  }
+
+  // ---------------------------------------------------------------- dice
+  function rollDice() {
+    const n = st.dice;
+    const faces = symbols.length;
+    const results = Array.from({ length: n }, () => (Math.random() * faces) | 0);
+    diceEl.innerHTML = results.map(() => `<div class="die ${faces === 12 ? "d12" : ""} rolling"><div class="sym"></div></div>`).join("");
+    const dice = [...diceEl.children];
+    const start = performance.now();
+    const stops = results.map((_, k) => 650 + k * 170 + Math.random() * 150);
+    let landed = 0;
+    const timers = dice.map((d, k) => {
+      const face = d.querySelector(".sym");
+      return setInterval(() => {
+        if (performance.now() - start >= stops[k]) {
+          clearInterval(timers[k]);
+          face.innerHTML = symHTML(symbols[results[k]]);
+          d.classList.remove("rolling"); d.classList.add("landed");
+          tick(520 + k * 40);
+          if (++landed === n) setTimeout(() => finish(results), 250);
+        } else {
+          face.innerHTML = symHTML(symbols[(Math.random() * faces) | 0]);
+        }
+      }, 75);
+    });
+  }
+
+  // ---------------------------------------------------------------- terrain (ball mode)
+  // Height field over the board in cell units: x ∈ [0,cols], y ∈ [0,rows].
+  // Each square is a dimple; the whole tray is warped by a tilt, a bowl/dome
+  // curvature and a handful of random bumps, so some squares are luckier.
+  const DIMPLE = 0.32;
+  let terrain = null;
+  function rng(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
+  function makeTerrain() {
+    const r = rng(st.seed);
+    const rows = rowsOf();
+    const bumps = [];
+    const nb = 4 + ((r() * 4) | 0);
+    for (let k = 0; k < nb; k++) bumps.push({ x: r() * cols, y: r() * rows, a: (r() * 2 - 1) * 0.12, s: 0.35 + r() * 0.5 });
+    terrain = {
+      rows, cx: cols / 2, cy: rows / 2,
+      tx: (r() * 2 - 1) * 0.07, ty: (r() * 2 - 1) * 0.07,
+      curv: (r() * 2 - 1) * 0.05,
+      twist: (r() * 2 - 1) * 0.03,
+      bumps,
+    };
+  }
+  function height(x, y) {
+    const t = terrain;
+    const fx = x - Math.floor(x), fy = y - Math.floor(y);
+    // round bowl in the middle of each square, blended with soft ridges along the edges
+    const r = Math.min(0.5, Math.hypot(fx - 0.5, fy - 0.5));
+    let h = -DIMPLE * (0.65 * (1 + Math.cos(2 * Math.PI * r)) / 2 + 0.35 * Math.sin(Math.PI * fx) * Math.sin(Math.PI * fy));
+    const dx = x - t.cx, dy = y - t.cy;
+    h += t.tx * dx + t.ty * dy + t.curv * (dx * dx + dy * dy) + t.twist * dx * dy;
+    for (const b of t.bumps) {
+      const ex = x - b.x, ey = y - b.y;
+      h += b.a * Math.exp(-(ex * ex + ey * ey) / (2 * b.s * b.s));
+    }
+    // raised lip around the rim
+    const m = Math.min(x, y, cols - x, t.rows - y);
+    if (m < 0.12) h += (0.12 - m) * 1.4;
+    return h;
+  }
+  function grad(x, y) {
+    const e = 1e-3;
+    return [(height(x + e, y) - height(x - e, y)) / (2 * e), (height(x, y + e) - height(x, y - e)) / (2 * e)];
+  }
+
+  let dpr = 1, boardPx = { w: 1, h: 1 };
+  function sizeCanvases() {
+    const inner = surface.parentElement;
+    boardPx = { w: inner.clientWidth, h: inner.clientHeight };
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    for (const c of [surface, ballsCanvas]) { c.width = Math.round(boardPx.w * dpr); c.height = Math.round(boardPx.h * dpr); }
+  }
+
+  function drawSurface() {
+    if (st.mode !== "ball") return;
+    const ctx = surface.getContext("2d");
+    const W = surface.width, H = surface.height;
+    const img = ctx.createImageData(W, H);
+    const rows = rowsOf();
+    const sx = cols / W, sy = rows / H;
+    // light from upper-left
+    const L = [-0.5, -0.6, 0.62]; const ll = Math.hypot(...L); L[0] /= ll; L[1] /= ll; L[2] /= ll;
+    const ex = 4.5; // exaggerate relief for shading
+    let minH = Infinity, maxH = -Infinity;
+    const hs = new Float32Array(W * H);
+    for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+      const v = height((i + 0.5) * sx, (j + 0.5) * sy);
+      hs[j * W + i] = v; if (v < minH) minH = v; if (v > maxH) maxH = v;
+    }
+    for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+      const k = j * W + i;
+      const hx = (hs[j * W + Math.min(W - 1, i + 1)] - hs[j * W + Math.max(0, i - 1)]) / (2 * sx);
+      const hy = (hs[Math.min(H - 1, j + 1) * W + i] - hs[Math.max(0, j - 1) * W + i]) / (2 * sy);
+      let nx = -hx * ex, ny = -hy * ex, nz = 1; const nl = Math.hypot(nx, ny, nz); nx /= nl; ny /= nl; nz /= nl;
+      const lam = Math.max(0, nx * L[0] + ny * L[1] + nz * L[2]);
+      const depth = (hs[k] - minH) / (maxH - minH || 1); // 0 low, 1 high
+      const shade = 0.35 + 0.85 * lam;
+      // felt green, darker in the hollows
+      const tone = 0.78 + 0.22 * depth;
+      img.data[k * 4] = Math.min(255, 46 * shade * tone + 10);
+      img.data[k * 4 + 1] = Math.min(255, 118 * shade * tone + 12);
+      img.data[k * 4 + 2] = Math.min(255, 78 * shade * tone + 10);
+      img.data[k * 4 + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    // faint grain
+    ctx.globalAlpha = 0.05;
+    for (let n = 0; n < W * H / 60; n++) { ctx.fillStyle = Math.random() < 0.5 ? "#000" : "#fff"; ctx.fillRect(Math.random() * W, Math.random() * H, dpr, dpr); }
+    ctx.globalAlpha = 1;
+  }
+
+  // ---------------------------------------------------------------- ball physics
+  const G = 34;          // gravity, cells/s² per unit slope
+  const BALL_R = 0.11;   // cells
+  const LIN_DRAG = 0.3; // 1/s
+  const ROLL_FRICTION = 1.6; // cells/s²
+  const REST = 0.6;      // wall restitution
+  let balls = [];
+
+  function launchBalls(n) {
+    const rows = rowsOf();
+    const out = [];
+    for (let k = 0; k < n; k++) {
+      const x = 0.4 + Math.random() * (cols - 0.8);
+      const ang = -Math.PI / 2 + (Math.random() * 2 - 1) * 0.65;
+      const sp = 4 + Math.random() * 8 + rows * 2.2;
+      out.push({ x, y: rows - BALL_R - 0.02, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, delay: k * 0.35, still: 0, done: false, t: 0, trail: [] });
+    }
+    return out;
+  }
+
+  function stepBalls(bs, dt) {
+    const rows = rowsOf();
+    for (const b of bs) {
+      if (b.delay > 0) { b.delay -= dt; continue; }
+      if (b.done) continue;
+      b.t += dt;
+      const [gx, gy] = grad(b.x, b.y);
+      let ax = -G * gx, ay = -G * gy;
+      // damping grows after a while so every roll ends
+      const extra = b.t > 6 ? (b.t - 6) * 1.2 : 0;
+      ax -= (LIN_DRAG + extra) * b.vx; ay -= (LIN_DRAG + extra) * b.vy;
+      const sp = Math.hypot(b.vx, b.vy);
+      if (sp > 1e-6) { const f = Math.min(ROLL_FRICTION, sp / dt); ax -= f * b.vx / sp; ay -= f * b.vy / sp; }
+      b.vx += ax * dt; b.vy += ay * dt;
+      b.x += b.vx * dt; b.y += b.vy * dt;
+      if (b.x < BALL_R) { b.x = BALL_R; b.vx = Math.abs(b.vx) * REST; b.hit = 1; }
+      if (b.x > cols - BALL_R) { b.x = cols - BALL_R; b.vx = -Math.abs(b.vx) * REST; b.hit = 1; }
+      if (b.y < BALL_R) { b.y = BALL_R; b.vy = Math.abs(b.vy) * REST; b.hit = 1; }
+      if (b.y > rows - BALL_R) { b.y = rows - BALL_R; b.vy = -Math.abs(b.vy) * REST; b.hit = 1; }
+      const s2 = Math.hypot(b.vx, b.vy);
+      const g2 = Math.hypot(gx, gy) * G;
+      if (s2 < 0.18 && g2 < ROLL_FRICTION + 0.8) b.still += dt; else b.still = 0;
+      if (b.still > 0.35) { b.done = true; b.vx = b.vy = 0; }
+    }
+    // ball–ball collisions
+    for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) {
+      const a = bs[i], c = bs[j];
+      if (a.delay > 0 || c.delay > 0) continue;
+      const dx = c.x - a.x, dy = c.y - a.y, d = Math.hypot(dx, dy), min = BALL_R * 2;
+      if (d > 0 && d < min) {
+        const nx = dx / d, ny = dy / d, ov = (min - d) / 2;
+        a.x -= nx * ov; a.y -= ny * ov; c.x += nx * ov; c.y += ny * ov;
+        const rel = (c.vx - a.vx) * nx + (c.vy - a.vy) * ny;
+        if (rel < 0) {
+          const imp = -rel * 0.9;
+          a.vx -= nx * imp; a.vy -= ny * imp; c.vx += nx * imp; c.vy += ny * imp;
+          a.done = c.done = false; a.still = c.still = 0; a.hit = c.hit = 1;
+        }
+      }
+    }
+  }
+  const cellOf = b => Math.min(rowsOf() - 1, Math.max(0, Math.floor(b.y))) * cols + Math.min(cols - 1, Math.max(0, Math.floor(b.x)));
+
+  function drawBalls() {
+    const ctx = ballsCanvas.getContext("2d");
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, ballsCanvas.width, ballsCanvas.height);
+    if (st.mode !== "ball") return;
+    const k = ballsCanvas.width / cols;
+    ctx.setTransform(k, 0, 0, k, 0, 0);
+    const r = BALL_R;
+    for (const b of balls) {
+      if (b.delay > 0) continue;
+      // trail
+      if (b.trail.length > 1) {
+        ctx.beginPath();
+        ctx.moveTo(b.trail[0][0], b.trail[0][1]);
+        for (const p of b.trail) ctx.lineTo(p[0], p[1]);
+        ctx.strokeStyle = "rgba(255,255,255,.12)"; ctx.lineWidth = r * 0.9; ctx.lineCap = "round"; ctx.lineJoin = "round";
+        ctx.stroke();
+      }
+      // shadow (offset away from the light)
+      ctx.beginPath(); ctx.ellipse(b.x + r * 0.35, b.y + r * 0.45, r * 1.05, r * 0.8, 0.4, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fill();
+      const g = ctx.createRadialGradient(b.x - r * 0.35, b.y - r * 0.4, r * 0.1, b.x, b.y, r);
+      g.addColorStop(0, "#ffffff"); g.addColorStop(0.35, "#e9edf2"); g.addColorStop(1, "#8b97a6");
+      ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
+    }
+  }
+
+  function rollBalls() {
+    balls = launchBalls(st.balls);
+    let last = performance.now();
+    let acc = 0;
+    const H = 1 / 240;
+    function frame(now) {
+      acc += Math.min(0.05, (now - last) / 1000); last = now;
+      while (acc >= H) { stepBalls(balls, H); acc -= H; }
+      for (const b of balls) {
+        if (b.delay > 0) continue;
+        b.trail.push([b.x, b.y]); if (b.trail.length > 18) b.trail.shift();
+        if (b.done && b.trail.length) b.trail.shift();
+        if (b.hit) { b.hit = 0; tick(260 + Math.random() * 60, 0.05); }
+      }
+      drawBalls();
+      if (balls.every(b => b.done)) {
+        balls.forEach(b => b.trail = []);
+        drawBalls();
+        setTimeout(() => finish(balls.map(cellOf)), 200);
+      } else requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ---------------------------------------------------------------- sound
+  let ac = null;
+  function tick(freq = 500, vol = 0.07) {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = "triangle"; o.frequency.value = freq;
+      g.gain.setValueAtTime(vol, ac.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.09);
+      o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.1);
+    } catch {}
+  }
+
+  // ---------------------------------------------------------------- controls
+  $("roll").onclick = () => {
+    if (rolling) return;
+    rolling = true; $("roll").disabled = true;
+    clearResult();
+    resultEl.textContent = st.mode === "dice" ? "Rolling…" : "Rolling the ball…";
+    if (st.mode === "dice") rollDice(); else rollBalls();
+  };
+  document.querySelectorAll(".seg").forEach(seg => seg.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b || rolling) return;
+    const k = seg.dataset.key, v = b.dataset.v;
+    st[k] = /^\d+$/.test(v) ? +v : v;
+    save();
+    if (k === "dice" || k === "balls") { syncSegs(); return; }
+    history = []; renderHistory();
+    buildBoard();
+  }));
+  $("reshape").onclick = () => {
+    if (rolling) return;
+    st.seed = (Math.random() * 2 ** 31) | 0; save();
+    balls = []; makeTerrain(); drawSurface(); drawBalls(); clearResult();
+    resultEl.textContent = "New lumps and bumps. Some squares just got luckier.";
+  };
+  document.addEventListener("keydown", e => {
+    if ((e.key === " " || e.key === "Enter") && e.target === document.body) { e.preventDefault(); $("roll").click(); }
+  });
+  let rz = 0;
+  window.addEventListener("resize", () => { cancelAnimationFrame(rz); rz = requestAnimationFrame(() => { layout(); drawSurface(); drawBalls(); }); });
+
+  // for testing: simulate many ball rolls instantly and report landing counts
+  window.mongSim = (n = 200) => {
+    const counts = symbols.map(() => 0); let tmax = 0, tsum = 0;
+    for (let k = 0; k < n; k++) {
+      const bs = launchBalls(1); let t = 0;
+      while (!bs[0].done && t < 30) { stepBalls(bs, 1 / 240); t += 1 / 240; }
+      counts[cellOf(bs[0])]++; tmax = Math.max(tmax, t); tsum += t;
+    }
+    return { counts, tavg: +(tsum / n).toFixed(2), tmax: +tmax.toFixed(2) };
+  };
+
+  buildBoard();
+  renderHistory();
+})();
+</script>
+</body>
+</html>
