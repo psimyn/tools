@@ -6,7 +6,6 @@
 <meta name="theme-color" content="#0e1013" />
 <title>Call</title>
 <script src="public/qrcode.js"></script>
-<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <style>
   :root {
     --bg: #0e1013;
@@ -171,6 +170,12 @@
     padding: 10px 12px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     color: #cfd6e2; white-space: pre-wrap; pointer-events: none;
   }
+  .bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; margin-left: auto; }
+  .bars i { width: 4px; border-radius: 1px; background: rgba(255,255,255,0.3); }
+  .bars i:nth-child(1) { height: 5px; } .bars i:nth-child(2) { height: 9px; } .bars i:nth-child(3) { height: 14px; }
+  .bars[data-q="3"] i { background: var(--go); }
+  .bars[data-q="2"] i:nth-child(-n+2) { background: #ffd479; }
+  .bars[data-q="1"] i:nth-child(1) { background: var(--stop); }
   #playBtn { position: absolute; z-index: 3; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 
   .toast {
@@ -266,6 +271,7 @@
     <span class="timer" id="timer" title="Connection info">0:00</span>
     <span class="badge" id="remoteMuted" hidden><svg><use href="#i-mic-off"/></svg>Muted</span>
     <span class="badge warn" id="netBadge" hidden>Reconnecting…</span>
+    <span class="bars" id="bars" hidden data-q="3"><i></i><i></i><i></i></span>
   </div>
   <div id="info" hidden></div>
   <button class="btn primary" id="playBtn" hidden>Tap to start audio &amp; video</button>
@@ -284,76 +290,315 @@
   "use strict";
   const $ = (id) => document.getElementById(id);
 
-  // Peer IDs on the public PeerJS server are global, so namespace ours.
-  const ID_PREFIX = "psimyn-call-";
+  // ---------- config ----------
+  // Where the signalling Worker (call-worker/ in this repo) lives. "" means
+  // this page's own origin, which is the case when the Worker serves the page.
+  // If no Worker answers there, the app falls back to the free public PeerJS
+  // server, used purely as a message relay.
+  const WORKER_URL = "";
+  const PEERJS = { host: "0.peerjs.com", key: "peerjs", prefix: "psimyn-call-" };
   const CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
-  // PeerJS's defaults (Google STUN + PeerJS's public TURN) plus more STUN
-  // servers, so devices behind awkward NATs still find a direct route.
-  const ICE = {
-    iceServers: [
-      { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
-      { urls: "stun:stun.cloudflare.com:3478" },
-      { urls: ["turn:eu-0.turn.peerjs.com:3478", "turn:us-0.turn.peerjs.com:3478"], username: "peerjs", credential: "peerjsp" },
-    ],
-    sdpSemantics: "unified-plan",
-  };
+  // Used with the PeerJS fallback: Google + Cloudflare STUN, and PeerJS's
+  // public TURN relay for networks where a direct path is impossible.
+  const FALLBACK_ICE = [
+    { urls: ["stun:stun.l.google.com:19302", "stun:stun.cloudflare.com:3478"] },
+    { urls: ["turn:eu-0.turn.peerjs.com:3478", "turn:us-0.turn.peerjs.com:3478"], username: "peerjs", credential: "peerjsp" },
+  ];
+  const AUDIO = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+  const videoConstraints = (facing) => ({
+    facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 },
+  });
 
   const screens = ["startScreen", "joinScreen", "waitScreen", "endScreen", "stage"];
   function show(id) { for (const s of screens) $(s).hidden = s !== id; }
 
   let toastTimer;
   function toast(msg) {
+    if (!msg) return;
     const t = $("toast");
     t.textContent = msg; t.classList.add("show");
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
   }
+
+  const rand = (n) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
+  const store = {
+    get(k) { try { return sessionStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { sessionStorage.setItem(k, v); } catch {} },
+  };
+  // Stable per tab (survives reloads), so a reload rejoins as the same person.
+  const CID = store.get("call-cid") || (() => { const c = rand(16); store.set("call-cid", c); return c; })();
 
   // ---------- state ----------
   const S = {
-    code: null,          // room code (from the URL hash)
-    mode: "video",       // "video" | "audio" for our own outgoing media
-    localStream: null,
-    peer: null,
-    role: null,          // "host" (claimed the id, waits) | "guest" (dialled in)
-    call: null,          // active MediaConnection
-    conn: null,          // active DataConnection (state + bye)
-    connected: false,
-    micOn: true, camOn: true,
-    facing: "user",
-    startedAt: 0,
-    timerId: 0,
-    wakeLock: null,
-    audioCtx: null,
-    meterRaf: 0,
-    retries: 0,
-    ended: false,
+    code: null, mode: "video", localStream: null,
+    backend: null,          // { kind: "worker"|"peerjs", base, iceServers, turn, at }
+    sig: null,              // signalling transport
+    peer: null,             // the other person's client id
+    pc: null, dc: null,
+    sid: null, remoteSid: null, polite: false,
+    makingOffer: false, ignoreOffer: false, answerPending: false, chain: Promise.resolve(),
+    remoteStream: null, everUp: false, inStage: false,
+    restarts: 0, restartTimer: 0, giveUpTimer: 0, leftTimer: 0, offerWait: 0, peerAway: false,
+    micOn: true, camOn: true, facing: "user",
+    startedAt: 0, timerId: 0, statsTimer: 0, wakeLock: null,
+    audioCtx: null, meterRaf: 0, meterSrc: null,
   };
+  let remoteCamOn = true;
+  // ?debug exposes the call state in the console (and to the tests).
+  if (/[?&]debug\b/.test(location.search)) window.__call = S;
 
-  function newCode() {
-    const bytes = crypto.getRandomValues(new Uint8Array(10));
-    return Array.from(bytes, (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
-  }
   function codeFromHash() {
     const h = location.hash.replace(/^#/, "").trim().toLowerCase();
     return /^[a-z0-9]{6,32}$/.test(h) ? h : null;
   }
   function linkFor(code) { return location.href.split("#")[0] + "#" + code; }
+  function hasVideo(stream) { return !!stream && stream.getVideoTracks().some((t) => t.readyState === "live"); }
+
+  // ---------- backend discovery ----------
+  // Started at page load so it's usually done before anyone taps a button.
+  let probe = null;
+  function discover() {
+    if (!probe) probe = (async () => {
+      const base = WORKER_URL || location.href;
+      for (let i = 0; i < (WORKER_URL ? 3 : 1); i++) {
+        try {
+          const ctl = new AbortController();
+          const t = setTimeout(() => ctl.abort(), 5000);
+          const r = await fetch(new URL("api/ice", base), { signal: ctl.signal, cache: "no-store" });
+          clearTimeout(t);
+          if (r.ok) {
+            const j = await r.json();
+            if (Array.isArray(j.iceServers)) return { kind: "worker", base, iceServers: j.iceServers, turn: !!j.turn, at: Date.now() };
+          }
+        } catch {}
+      }
+      // A configured Worker that doesn't answer must not silently fall back:
+      // the other person would be on the Worker and we'd never meet.
+      if (WORKER_URL) { probe = null; throw new Error("Can't reach the call server. Check your connection and try again."); }
+      return { kind: "peerjs", iceServers: FALLBACK_ICE, turn: true, at: Date.now() };
+    })();
+    return probe;
+  }
+  async function backend() {
+    let b = await discover();
+    if (b.kind === "worker" && Date.now() - b.at > 30 * 60e3) {
+      // TURN credentials are short-lived; refresh if the page sat open a while.
+      probe = null;
+      try { b = await discover(); } catch {}
+    }
+    return b;
+  }
+
+  // ---------- signalling: Cloudflare Worker room ----------
+  function workerSignal(base, code, h) {
+    let ws = null, closed = false, attempt = 0, pingT = 0, retryT = 0, pongT = 0;
+    const queue = [];
+    const url = new URL("api/room/" + code, base);
+    url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
+    url.searchParams.set("cid", CID);
+    function open() {
+      if (closed) return;
+      clearTimeout(retryT); clearTimeout(pongT); clearInterval(pingT);
+      if (ws) { const old = ws; ws = null; try { old.close(); } catch {} }
+      const me = (ws = new WebSocket(url));
+      me.onopen = () => {
+        attempt = 0;
+        pingT = setInterval(() => alive(10000), 15000);
+        while (queue.length && me.readyState === 1) me.send(queue.shift());
+      };
+      me.onmessage = (e) => {
+        if (ws !== me) return;
+        if (e.data === "pong") { clearTimeout(pongT); return; }
+        let m; try { m = JSON.parse(e.data); } catch { return; }
+        if (m.t === "welcome") h.ready(m.peers || []);
+        else if (m.t === "peer-joined") h.peer(m.peer);
+        else if (m.t === "peer-left") h.left(m.peer);
+        else if (m.t === "signal") h.message(m.from, m.data);
+        else if (m.t === "full") { closed = true; h.full(); }
+      };
+      me.onclose = (e) => {
+        if (ws !== me) return;
+        clearInterval(pingT); clearTimeout(pongT);
+        if (closed || e.code === 4002) return;
+        if (e.code === 4001) { closed = true; h.replaced(); return; }
+        retryT = setTimeout(open, Math.min(8000, 400 * 2 ** attempt++));
+      };
+    }
+    // A socket can look open long after the network under it changed (phones
+    // switching Wi-Fi <-> mobile). The room answers "ping" with "pong" without
+    // waking up, so no pong in time means the socket is dead: replace it.
+    function alive(timeout) {
+      if (closed || !ws) return;
+      if (ws.readyState !== 1) { if (ws.readyState > 1) open(); return; }
+      clearTimeout(pongT);
+      try { ws.send("ping"); } catch {}
+      pongT = setTimeout(() => { if (!closed) { attempt = 0; open(); } }, timeout);
+    }
+    open();
+    return {
+      kind: "worker",
+      send(data) {
+        const s = JSON.stringify({ t: "signal", data });
+        if (ws && ws.readyState === 1) ws.send(s);
+        else { queue.push(s); if (queue.length > 300) queue.shift(); }
+      },
+      reconnectNow() {
+        if (closed) return;
+        if (ws && ws.readyState <= 1) { alive(3000); return; }
+        attempt = 0; open();
+      },
+      peerGone() {},
+      close() {
+        closed = true; clearTimeout(retryT); clearInterval(pingT); clearTimeout(pongT);
+        try { ws && ws.close(1000); } catch {}
+      },
+    };
+  }
+
+  // ---------- signalling: public PeerJS server as a relay (fallback) ----------
+  // Talks the PeerJS server's WebSocket protocol directly; no PeerJS library.
+  // Whoever registers the room id first "holds" the room. Everyone else
+  // registers their own id and says hello to the holder. The holder's token
+  // is kept per tab, so a reload or reconnect reclaims the room instead of
+  // getting "ID is taken".
+  function peerjsSignal(code, h) {
+    const roomId = PEERJS.prefix + code;
+    const token = store.get("call-token-" + code) || (() => { const t = rand(16); store.set("call-token-" + code, t); return t; })();
+    let ws = null, closed = false, role = null, peerId = null, attempt = 0;
+    let hb = 0, retryT = 0, helloT = 0;
+    const queue = [];
+
+    function connect(asHolder) {
+      clearTimeout(retryT); clearTimeout(helloT); clearInterval(hb);
+      if (ws) { const old = ws; ws = null; try { old.close(); } catch {} }
+      if (closed) return;
+      role = null;
+      const id = asHolder ? roomId : roomId + "-" + CID;
+      const me = (ws = new WebSocket(`wss://${PEERJS.host}/peerjs?key=${PEERJS.key}&id=${encodeURIComponent(id)}&token=${token}&version=1.5.4`));
+      // If our previous socket for this id is still registered (same token),
+      // the server silently re-attaches us and sends no OPEN. Silence after
+      // connecting therefore means success.
+      let openT = 0, opened = false;
+      const onOpen = () => {
+        if (opened || ws !== me) return;
+        opened = true; clearTimeout(openT);
+        attempt = 0;
+        role = asHolder ? "holder" : "guest";
+        hb = setInterval(() => me.readyState === 1 && me.send('{"type":"HEARTBEAT"}'), 5000);
+        if (role === "holder") { if (!peerId) h.ready([]); flush(); }
+        else hello();
+      };
+      me.onopen = () => { openT = setTimeout(onOpen, 1500); };
+      me.onmessage = (e) => {
+        if (ws !== me) return;
+        let m; try { m = JSON.parse(e.data); } catch { return; }
+        switch (m.type) {
+          case "OPEN":
+            onOpen();
+            break;
+          case "ID-TAKEN":
+            clearTimeout(openT);
+            if (asHolder) connect(false);
+            else { closed = true; h.replaced(); }
+            break;
+          case "ERROR":
+            clearTimeout(openT);
+            console.warn("signalling error", m.payload);
+            break;
+          case "EXPIRE": // our message to the holder couldn't be delivered
+          case "LEAVE":
+            if (role === "guest" && m.src === roomId) holderGone();
+            else if (m.src === peerId && m.type === "LEAVE") h.left(peerCid);
+            break;
+          case "OFFER":
+            onPayload(m.src, m.payload);
+            break;
+        }
+      };
+      me.onclose = () => {
+        if (ws !== me) return;
+        clearInterval(hb); clearTimeout(openT);
+        if (closed) return;
+        retryT = setTimeout(() => connect(role !== "guest"), Math.min(8000, 400 * 2 ** attempt++));
+      };
+    }
+    let peerCid = null;
+    function raw(dst, p) {
+      if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "OFFER", dst, payload: { ...p, cid: CID } }));
+    }
+    function hello() {
+      raw(roomId, { k: "hello" });
+      clearTimeout(helloT);
+      helloT = setTimeout(holderGone, 8000);
+    }
+    // Guest: the holder isn't answering (left, or a stale registration the
+    // server hasn't dropped yet), so try to hold the room ourselves.
+    function holderGone() {
+      clearTimeout(helloT);
+      if (closed) return;
+      peerId = null;
+      retryT = setTimeout(() => connect(true), 400 + Math.random() * 800);
+    }
+    function flush() {
+      while (queue.length && peerId && ws && ws.readyState === 1) raw(peerId, { k: "sig", data: queue.shift() });
+    }
+    function onPayload(src, p) {
+      if (!p || typeof p !== "object" || !p.cid) return;
+      if (p.k === "hello") {
+        if (role !== "holder") return;
+        if (peerId && peerId !== src && !h.canAccept(p.cid)) { raw(src, { k: "full" }); return; }
+        peerId = src; peerCid = p.cid;
+        raw(src, { k: "welcome" });
+        h.peer(p.cid);
+        flush();
+      } else if (p.k === "welcome") {
+        if (role !== "guest" || src !== roomId) return;
+        clearTimeout(helloT);
+        peerId = src; peerCid = p.cid;
+        h.ready([p.cid]);
+        flush();
+      } else if (p.k === "full") {
+        closed = true; h.full();
+      } else if (p.k === "sig" && src === peerId) {
+        h.message(p.cid, p.data);
+      }
+    }
+    connect(true);
+    return {
+      kind: "peerjs",
+      send(data) {
+        if (peerId && ws && ws.readyState === 1) raw(peerId, { k: "sig", data });
+        else { queue.push(data); if (queue.length > 300) queue.shift(); }
+      },
+      reconnectNow() {
+        if (closed || (ws && ws.readyState <= 1)) return;
+        attempt = 0; connect(role !== "guest"); // also replaces a socket stuck in CLOSING
+      },
+      // The other person left for good: a guest takes over the room so the
+      // link keeps working; a holder just waits for the next hello.
+      peerGone() {
+        peerId = null; peerCid = null; queue.length = 0;
+        if (role === "guest") holderGone();
+      },
+      close() {
+        closed = true; clearTimeout(retryT); clearTimeout(helloT); clearInterval(hb);
+        try { ws && ws.close(); } catch {}
+      },
+    };
+  }
 
   // ---------- media ----------
   async function getMedia(mode) {
-    const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
-    if (mode === "audio") return navigator.mediaDevices.getUserMedia({ audio, video: false });
+    // Safari: tell the OS this is a call, so audio routes and ducks like one.
+    try { if (navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch {}
+    if (mode === "audio") return navigator.mediaDevices.getUserMedia({ audio: AUDIO, video: false });
     try {
-      return await navigator.mediaDevices.getUserMedia({
-        audio,
-        video: { facingMode: S.facing, width: { ideal: 1280 }, height: { ideal: 720 } },
-      });
+      return await navigator.mediaDevices.getUserMedia({ audio: AUDIO, video: videoConstraints(S.facing) });
     } catch (e) {
-      // No camera / camera refused — fall back to voice rather than failing the call.
       if (e.name === "NotFoundError" || e.name === "OverconstrainedError" || e.name === "NotReadableError") {
         S.mode = "audio";
         toast("No camera available — joining with voice");
-        return navigator.mediaDevices.getUserMedia({ audio, video: false });
+        return navigator.mediaDevices.getUserMedia({ audio: AUDIO, video: false });
       }
       throw e;
     }
@@ -366,135 +611,125 @@
     return "Couldn't access your camera / microphone: " + (e.message || e.name);
   }
 
-  function hasVideo(stream) { return !!stream && stream.getVideoTracks().some((t) => t.readyState === "live"); }
+  // iOS ends capture tracks when the page is backgrounded, and unplugging a
+  // headset ends the mic track. Get a fresh one and swap it into the call
+  // without renegotiating.
+  function watchTrack(t) {
+    t.addEventListener("ended", () => {
+      if (S.localStream && S.localStream.getTracks().includes(t)) setTimeout(() => reacquire(t.kind), 400);
+    });
+  }
+  async function reacquire(kind, wantFacing) {
+    if (!S.localStream) return false;
+    const old = S.localStream.getTracks().find((x) => x.kind === kind);
+    if (old) old.stop(); // many phones can't open two cameras at once
+    const get = async (c) => (await navigator.mediaDevices.getUserMedia(c)).getTracks()[0];
+    let fresh, switched = false;
+    try {
+      if (kind === "audio") fresh = await get({ audio: AUDIO });
+      else if (wantFacing) {
+        try { fresh = await get({ video: videoConstraints({ exact: wantFacing }) }); switched = true; }
+        catch { fresh = await get({ video: videoConstraints(S.facing) }); }
+      } else fresh = await get({ video: videoConstraints(S.facing) });
+    } catch { return false; }
+    if (!S.localStream) { fresh.stop(); return false; }
+    if (switched) S.facing = wantFacing;
+    fresh.enabled = kind === "audio" ? S.micOn : S.camOn;
+    if (old) S.localStream.removeTrack(old);
+    S.localStream.addTrack(fresh);
+    watchTrack(fresh);
+    const sender = S.pc && S.pc.getSenders().find((x) => x.track && x.track.kind === kind);
+    if (sender) await sender.replaceTrack(fresh).catch(() => {});
+    $("localVideo").srcObject = S.localStream;
+    if (!$("waitScreen").hidden) $("previewVideo").srcObject = S.localStream;
+    $("localWrap").classList.toggle("rear", S.facing === "environment");
+    return wantFacing ? switched : true;
+  }
 
   // ---------- flow ----------
   async function begin(mode, code) {
-    S.mode = mode;
-    S.code = code;
-    S.ended = false;
-    S.retries = 0;
+    S.mode = mode; S.code = code;
     S.micOn = true; S.camOn = true;
     const errEl = codeFromHash() ? $("joinErr") : $("startErr");
     errEl.hidden = true;
+    if (!window.RTCPeerConnection) { errEl.textContent = "This browser doesn't support WebRTC calls."; errEl.hidden = false; return; }
 
-    if (typeof Peer !== "function") {
-      errEl.textContent = "Couldn't load the calling library (PeerJS). Check your connection and reload.";
-      errEl.hidden = false;
-      return;
-    }
+    // Media permission and backend discovery in parallel.
+    const be = backend().catch((e) => e);
     try {
       S.localStream = await getMedia(mode);
     } catch (e) {
-      errEl.textContent = mediaErrorText(e);
-      errEl.hidden = false;
-      return;
+      errEl.textContent = mediaErrorText(e); errEl.hidden = false; return;
     }
+    S.localStream.getTracks().forEach(watchTrack);
     if (location.hash !== "#" + code) history.replaceState(null, "", "#" + code);
 
-    // Waiting screen with a local preview.
     $("preview").hidden = !hasVideo(S.localStream);
     $("previewVideo").srcObject = S.localStream;
     $("shareBox").hidden = true;
     setWait("Connecting…");
     show("waitScreen");
     requestWakeLock();
-    claimOrDial();
+
+    const b = await be;
+    if (b instanceof Error) { endCall(b.message, true); return; }
+    if (!S.localStream) return; // cancelled meanwhile
+    S.backend = b;
+    // Events from a transport we've since retired (e.g. the previous call's
+    // socket, still closing when Rejoin is tapped) must not touch this call.
+    let sig = null;
+    const live = (fn) => (...args) => { if (S.sig === sig) fn(...args); };
+    const handlers = {
+      // The newcomer makes the first offer; whoever was already waiting answers.
+      ready: live((peers) => (peers.length ? peerPresent(peers[0], true) : alone())),
+      peer: live((cid) => peerPresent(cid, false)),
+      left: live(peerLeftSignalling),
+      message: live(onSignal),
+      full: live(() => endCall("This call already has two people in it.", false, true)),
+      replaced: live(() => endCall("This call was opened in another tab.", false)),
+      canAccept: (cid) => !S.pc || cid === S.peer,
+    };
+    sig = S.sig = b.kind === "worker" ? workerSignal(b.base, code, handlers) : peerjsSignal(code, handlers);
   }
 
   function setWait(text) { $("waitStatus").textContent = text; }
 
-  // Symmetric links: whoever opens the link first claims the room id and waits;
-  // whoever comes second finds the id taken and calls it. So the creator can
-  // reload, and it doesn't matter who opens the link first.
-  //
-  // The PeerJS server only lets an id be re-registered with the token it was
-  // first registered with. So once this tab owns a room, reuse its token,
-  // kept in sessionStorage (per tab, survives reloads). Otherwise a reload or
-  // a dropped socket gets "ID is taken" for our own room, and we'd end up
-  // dialling our own stale registration.
-  function tokenKey() { return "call-token-" + S.code; }
-  function ownedToken() { try { return sessionStorage.getItem(tokenKey()); } catch { return null; } }
-  function rememberToken(t) { try { sessionStorage.setItem(tokenKey(), t); } catch {} }
-  function randomToken() { return Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(36)).join(""); }
-
-  function claimOrDial() {
-    destroyPeer();
-    clearTimeout(S.dialTimer);
-    const token = ownedToken() || randomToken();
-    // debug 0: "ID is taken" is the expected answer for the second person, not an error worth logging.
-    const peer = new Peer(ID_PREFIX + S.code, { debug: 0, token, config: ICE });
-    S.peer = peer;
-    peer.on("open", () => {
-      if (S.peer !== peer) return;
-      rememberToken(token);
-      S.role = "host";
-      showShare();
-      setWait("Waiting for someone to join…");
-    });
-    peer.on("error", (err) => {
-      if (S.peer !== peer) return;
-      if (err.type === "unavailable-id") { dial(); return; }
-      handlePeerError(err);
-    });
-    peer.on("disconnected", () => {
-      // Lost the signalling socket. An established call doesn't need it, but
-      // a host still waiting for someone does.
-      if (S.peer === peer && !peer.destroyed) setTimeout(() => !peer.destroyed && peer.reconnect(), 1000);
-    });
-    peer.on("call", onIncomingCall);
-    peer.on("connection", onIncomingConn);
+  function alone() {
+    if (S.pc) return;
+    showShare();
+    setWait(S.startedAt ? "They left. The link still works — waiting…" : "Waiting for someone to join…");
   }
 
-  function dial() {
-    destroyPeer();
-    S.role = "guest";
-    setWait("Calling…");
-    const peer = new Peer({ debug: 0, config: ICE });
-    S.peer = peer;
-    peer.on("open", () => {
-      if (S.peer !== peer) return;
-      const target = ID_PREFIX + S.code;
-      const conn = peer.connect(target, { reliable: true });
-      attachConn(conn);
-      const call = peer.call(target, S.localStream, { metadata: { mode: S.mode } });
-      attachCall(call);
-      // If nobody answers, the room's owner is probably gone but the server
-      // hasn't noticed yet (phones often drop sockets without closing them).
-      // Go back to claiming the room; once the stale id expires we'll own it.
-      clearTimeout(S.dialTimer);
-      S.dialTimer = setTimeout(() => {
-        if (S.peer !== peer || S.connected) return;
-        if (S.retries++ < 6) { setWait("No answer yet — retrying…"); claimOrDial(); }
-        else endCall("Couldn't reach the other person. Ask them to reopen the link.", true);
-      }, 12000);
-    });
-    peer.on("error", (err) => {
-      if (S.peer !== peer) return;
-      if (err.type === "peer-unavailable") {
-        // The other side vanished between our claim attempt and the dial —
-        // try to become the host instead.
-        if (S.retries++ < 4) { setTimeout(claimOrDial, 400 + Math.random() * 600); return; }
-      }
-      handlePeerError(err);
-    });
+  // Only one side makes the first offer. Perfect negotiation would sort out
+  // both offering at once, but rolling back a first offer whose m-lines differ
+  // from the other side's (video vs voice-only) trips a Chrome bug ("Failed to
+  // start SCTP transport"), so avoid the collision in the first place.
+  function peerPresent(cid, initiate) {
+    if (!S.localStream) return;
+    clearTimeout(S.leftTimer);
+    S.peerAway = false;
+    if (S.pc && S.peer === cid) return; // they reconnected to the server; ICE handles the media side
+    if (S.pc) closePC();               // someone new after the previous person left
+    S.peer = cid;
+    setWait("Connecting…");
+    clearTimeout(S.offerWait);
+    if (initiate) createPC();
+    // Their offer should arrive within a second; if it got lost, offer ourselves.
+    else S.offerWait = setTimeout(() => { if (!S.pc && S.peer === cid && S.localStream) createPC(); }, 5000);
   }
 
-  function handlePeerError(err) {
-    console.warn("peer error", err.type, err);
-    const msg = {
-      "browser-incompatible": "This browser doesn't support WebRTC calls.",
-      "network": "Can't reach the signalling server. Check your connection.",
-      "server-error": "The signalling server is having trouble. Try again in a moment.",
-      "socket-error": "Lost connection to the signalling server.",
-      "socket-closed": "Lost connection to the signalling server.",
-      "peer-unavailable": "Couldn't reach the other person.",
-    }[err.type];
-    if (S.connected) { if (msg) toast(msg); return; }
-    if (err.type === "network" || err.type === "socket-error" || err.type === "socket-closed" || err.type === "server-error") {
-      if (S.retries++ < 5) { setWait("Reconnecting to server…"); setTimeout(claimOrDial, 1500 * S.retries); return; }
-    }
-    endCall(msg || "Something went wrong: " + err.type, true);
+  // The server lost the other person's socket. Media is peer-to-peer, so this
+  // alone doesn't end the call: only if the media path is down too.
+  function peerLeftSignalling(cid) {
+    if (cid !== S.peer || !S.pc) return;
+    S.peerAway = true;
+    if (!iceUp()) armLeft();
+  }
+  // Signalling says they're gone and media is down too: give them a few
+  // seconds to come back (a reload, a network switch), then stop waiting.
+  function armLeft() {
+    clearTimeout(S.leftTimer);
+    S.leftTimer = setTimeout(() => { if (S.pc && !iceUp()) remoteGone("They left."); }, 8000);
   }
 
   function showShare() {
@@ -509,68 +744,280 @@
     $("shareBox").hidden = false;
   }
 
-  function isBusy() { return S.connected || (S.call && S.call.open); }
+  // ---------- peer connection (perfect negotiation) ----------
+  // One RTCPeerConnection carries audio, video and a control data channel.
+  // Either side can (re)negotiate at any time; offer collisions are resolved
+  // by fixed polite/impolite roles (the "perfect negotiation" pattern), which
+  // is what makes ICE restarts and track changes safe mid-call.
+  function createPC() {
+    const pc = new RTCPeerConnection({ iceServers: S.backend.iceServers, bundlePolicy: "max-bundle", rtcpMuxPolicy: "require" });
+    S.pc = pc;
+    S.sid = rand(10); S.remoteSid = null;
+    S.polite = CID > S.peer;
+    S.makingOffer = false; S.ignoreOffer = false; S.answerPending = false;
+    S.chain = Promise.resolve();
+    S.everUp = false; S.restarts = 0;
+    S.remoteStream = new MediaStream();
+    remoteCamOn = true;
 
-  function onIncomingCall(call) {
-    if (isBusy() && call.peer !== (S.call && S.call.peer)) { call.close(); return; }
-    call.answer(S.localStream);
-    attachCall(call);
+    for (const t of S.localStream.getTracks()) pc.addTrack(t, S.localStream);
+    preferRed(pc);
+
+    const dc = pc.createDataChannel("ctl", { negotiated: true, id: 0 });
+    S.dc = dc;
+    dc.onopen = sendState;
+    dc.onmessage = (e) => { if (S.dc === dc) onControl(e.data); };
+
+    pc.onnegotiationneeded = async () => {
+      if (S.pc !== pc) return;
+      try {
+        S.makingOffer = true;
+        await pc.setLocalDescription();
+        signal({ description: pc.localDescription });
+      } catch (e) { console.warn("negotiation", e); }
+      finally { S.makingOffer = false; }
+    };
+    pc.onicecandidate = (e) => { if (S.pc === pc && e.candidate) signal({ candidate: e.candidate }); };
+    pc.ontrack = (e) => {
+      if (S.pc !== pc) return;
+      const t = e.track;
+      S.remoteStream.addTrack(t);
+      t.onmute = t.onunmute = () => updateRemoteView();
+      t.onended = () => { if (S.pc === pc) { S.remoteStream.removeTrack(t); updateRemoteView(); } };
+      if (t.kind === "audio") startMeter(S.remoteStream);
+      enterStage();
+      updateRemoteView();
+    };
+    pc.oniceconnectionstatechange = () => onIce(pc);
+    pc.onconnectionstatechange = () => { if (S.pc === pc && pc.connectionState === "failed") onIce(pc); };
+    armGiveUp();
   }
 
-  function onIncomingConn(conn) {
-    if (isBusy() && conn.peer !== (S.call && S.call.peer)) {
-      conn.on("open", () => { conn.send({ t: "busy" }); setTimeout(() => conn.close(), 500); });
-      return;
+  function signal(obj) {
+    if (S.sig) S.sig.send({ ...JSON.parse(JSON.stringify(obj)), sid: S.sid, to: S.remoteSid });
+  }
+
+  function onSignal(cid, data) {
+    if (!S.localStream || !data) return;
+    // Only a fresh offer may start a connection; anything else is a straggler
+    // from a connection we already closed (e.g. the signalling copy of a "bye"
+    // that arrived over the data channel first).
+    const fresh = data.description && data.description.type === "offer" && !data.to;
+    if (cid !== S.peer) {
+      if (S.pc || !fresh) return;
+      S.peer = cid;
     }
-    attachConn(conn);
-  }
-
-  function attachConn(conn) {
-    if (S.conn && S.conn !== conn) try { S.conn.close(); } catch {}
-    S.conn = conn;
-    conn.on("open", sendState);
-    conn.on("data", (m) => {
-      if (!m || typeof m !== "object") return;
-      if (m.t === "state") applyRemoteState(m);
-      else if (m.t === "bye") remoteLeft("They hung up.");
-      else if (m.t === "busy") endCall("This call already has two people in it.", false, true);
-    });
-    conn.on("close", () => { if (S.conn === conn) S.conn = null; });
-  }
-
-  function attachCall(call) {
-    if (S.call && S.call !== call) try { S.call.close(); } catch {}
-    S.call = call;
-    call.on("stream", (remote) => {
-      if (S.call !== call) return;
-      onConnected(remote);
-    });
-    call.on("close", () => { if (S.call === call && S.connected) remoteLeft("The call was disconnected."); });
-    call.on("error", (e) => console.warn("call error", e));
-    const pc = call.peerConnection;
-    if (pc) {
-      let dropTimer = 0;
-      pc.addEventListener("iceconnectionstatechange", () => {
-        if (S.call !== call) return;
-        const st = pc.iceConnectionState;
-        if (st === "checking" || st === "new") {
-          setNet("Connecting…");
-        } else if (st === "disconnected") {
-          setNet("Reconnecting…");
-          clearTimeout(dropTimer);
-          dropTimer = setTimeout(() => {
-            if (S.call === call && pc.iceConnectionState !== "connected" && pc.iceConnectionState !== "completed")
-              remoteLeft("The connection dropped.");
-          }, 15000);
-        } else if (st === "connected" || st === "completed") {
-          setNet(null);
-          clearTimeout(dropTimer);
-        } else if (st === "failed") {
-          clearTimeout(dropTimer);
-          remoteLeft(S.connected ? "The connection dropped." : "Couldn't connect — a firewall may be blocking the call.");
-        }
-      });
+    if (!S.pc) {
+      if (!fresh) return;
+      clearTimeout(S.offerWait); clearTimeout(S.leftTimer);
+      setWait("Connecting…");
+      createPC();
     }
+    S.chain = S.chain.then(() => applySignal(data)).catch((e) => console.warn("signal", e));
+  }
+
+  async function applySignal(data) {
+    let pc = S.pc;
+    if (!pc || !data.sid) return;
+    // Messages carry the sender's connection id (sid) and which of our
+    // connections they're meant for (to). This keeps a reload on either side
+    // from mixing up two generations of the connection.
+    if (data.to && data.to !== S.sid) return; // for a connection we've since replaced
+    if (data.bye) { remoteGone("They hung up."); return; }
+    if (S.remoteSid && data.sid !== S.remoteSid) {
+      // A brand-new connection from them (they reloaded): start fresh too.
+      if (data.to || !data.description || data.description.type !== "offer") return;
+      const peer = S.peer;
+      closePC(); S.peer = peer; createPC(); pc = S.pc;
+    }
+    S.remoteSid = data.sid;
+    const { description, candidate } = data;
+    if (description) {
+      const readyForOffer = !S.makingOffer && (pc.signalingState === "stable" || S.answerPending);
+      const collision = description.type === "offer" && !readyForOffer;
+      S.ignoreOffer = !S.polite && collision;
+      if (S.ignoreOffer) return;
+      S.answerPending = description.type === "answer";
+      await pc.setRemoteDescription(description);
+      S.answerPending = false;
+      if (description.type === "offer") {
+        await pc.setLocalDescription();
+        signal({ description: pc.localDescription });
+      }
+    } else if (candidate) {
+      try { await pc.addIceCandidate(candidate); }
+      catch (e) { if (!S.ignoreOffer) console.warn("candidate", e); }
+    }
+  }
+
+  // Opus + RED (RFC 2198): each packet also carries the previous frame, so a
+  // single lost packet costs nothing audible. Chrome only uses it when RED is
+  // the preferred codec.
+  function preferRed(pc) {
+    try {
+      const caps = RTCRtpReceiver.getCapabilities && RTCRtpReceiver.getCapabilities("audio");
+      if (!caps) return;
+      const isRed = (c) => c.mimeType.toLowerCase() === "audio/red";
+      const red = caps.codecs.filter(isRed);
+      if (!red.length) return;
+      const codecs = [...red, ...caps.codecs.filter((c) => !isRed(c))];
+      for (const t of pc.getTransceivers()) {
+        if (t.sender.track && t.sender.track.kind === "audio" && t.setCodecPreferences) t.setCodecPreferences(codecs);
+      }
+    } catch (e) { console.warn("RED", e); }
+  }
+
+  // Voice matters more than video: give audio packets priority locally and
+  // mark them for priority on networks that honour DSCP.
+  async function tuneSenders(pc) {
+    if (pc._tuned) return;
+    pc._tuned = true;
+    for (const s of pc.getSenders()) {
+      if (!s.track || s.track.kind !== "audio") continue;
+      try {
+        const p = s.getParameters();
+        if (!p.encodings || !p.encodings.length) continue;
+        p.encodings[0].priority = "high";
+        p.encodings[0].networkPriority = "high";
+        await s.setParameters(p);
+      } catch {}
+    }
+  }
+
+  function iceUp(pc = S.pc) {
+    const s = pc && pc.iceConnectionState;
+    return s === "connected" || s === "completed";
+  }
+
+  function onIce(pc) {
+    if (S.pc !== pc) return;
+    const st = pc.iceConnectionState;
+    clearTimeout(S.restartTimer);
+    if (st === "connected" || st === "completed") {
+      S.restarts = 0;
+      clearTimeout(S.giveUpTimer); S.giveUpTimer = 0;
+      clearTimeout(S.leftTimer);
+      setNet(null);
+      if (!S.everUp) { S.everUp = true; startTimer(); }
+      tuneSenders(pc);
+    } else if (st === "disconnected") {
+      // Often a blip that recovers by itself; restart ICE if it doesn't soon.
+      setNet(S.everUp ? "Reconnecting…" : "Connecting…");
+      // Staggered so both sides rarely restart at the same moment.
+      S.restartTimer = setTimeout(() => restartIce("disconnected"), S.polite ? 4000 : 2000);
+      armGiveUp();
+      if (S.peerAway) armLeft();
+    } else if (st === "failed" || pc.connectionState === "failed") {
+      setNet(S.everUp ? "Reconnecting…" : "Connecting…");
+      restartIce("failed");
+      armGiveUp();
+      if (S.peerAway) armLeft();
+    } else if (st === "checking" && !S.everUp) {
+      setNet("Connecting…");
+    }
+  }
+
+  function restartIce(why) {
+    const pc = S.pc;
+    if (!pc || pc.signalingState === "closed" || S.restarts > 10) return;
+    S.restarts++;
+    console.info("ICE restart:", why);
+    if (S.sig) S.sig.reconnectNow();
+    pc.restartIce();
+  }
+
+  function armGiveUp() {
+    if (S.giveUpTimer) return;
+    const first = !S.everUp;
+    S.giveUpTimer = setTimeout(() => {
+      S.giveUpTimer = 0;
+      if (!S.pc || iceUp()) return;
+      if (first) endCall("Couldn't connect. A firewall or network may be blocking the call.", true);
+      else remoteGone("The connection was lost.");
+    }, first ? 30000 : 45000);
+  }
+
+  // Switching Wi-Fi <-> mobile data changes our address. Restarting ICE right
+  // away finds the new path in a second or two instead of waiting ~30 s for
+  // the old one to time out.
+  function networkChanged(why) {
+    if (S.sig) S.sig.reconnectNow();
+    if (S.pc && S.everUp) setTimeout(() => restartIce(why), 300);
+  }
+  addEventListener("online", () => networkChanged("online"));
+  try { navigator.connection && navigator.connection.addEventListener("change", () => networkChanged("network change")); } catch {}
+
+  function closePC() {
+    const pc = S.pc, dc = S.dc;
+    S.pc = null; S.dc = null; S.peer = null; S.remoteSid = null; S.peerAway = false;
+    clearTimeout(S.restartTimer); clearTimeout(S.giveUpTimer); clearTimeout(S.leftTimer); clearTimeout(S.offerWait);
+    S.giveUpTimer = 0;
+    try { dc && dc.close(); } catch {}
+    try { pc && pc.close(); } catch {}
+    $("remoteVideo").srcObject = null;
+    S.remoteStream = null;
+    $("remoteMuted").hidden = true;
+    $("playBtn").hidden = true;
+    setNet(null);
+    stopTimer(); stopStats(); stopMeter();
+    S.inStage = false;
+  }
+
+  function sayBye() {
+    const dc = S.dc;
+    if (dc && dc.readyState === "open") try { dc.send(JSON.stringify({ t: "bye" })); } catch {}
+    if (S.pc) signal({ bye: true });
+  }
+
+  // The other person is gone. Whoever is left keeps the room open and goes
+  // back to waiting, so the same link can be used to call back.
+  function remoteGone(reason) {
+    if (!S.localStream || !S.pc) return;
+    closePC();
+    if (S.sig) S.sig.peerGone();
+    toast(reason);
+    $("preview").hidden = !hasVideo(S.localStream);
+    $("previewVideo").srcObject = S.localStream;
+    showShare();
+    setWait("They left. The link still works — waiting…");
+    show("waitScreen");
+  }
+
+  function endCall(reason, isError, fullCall) {
+    const duration = S.startedAt ? Date.now() - S.startedAt : 0;
+    sayBye();
+    closePC();
+    if (S.sig) { const sig = S.sig; S.sig = null; setTimeout(() => sig.close(), 150); }
+    if (S.localStream) S.localStream.getTracks().forEach((t) => t.stop());
+    S.localStream = null;
+    $("previewVideo").srcObject = null;
+    $("localVideo").srcObject = null;
+    releaseWakeLock();
+    S.startedAt = 0;
+
+    $("endTitle").textContent = fullCall ? "Call is full" : isError ? "Couldn't connect" : "Call ended";
+    const parts = [];
+    if (reason) parts.push(reason);
+    if (duration > 1000) parts.push("Duration " + fmt(duration) + ".");
+    $("endSub").textContent = parts.join(" ");
+    $("rejoinBtn").textContent = isError ? "Try again" : "Rejoin";
+    show("endScreen");
+  }
+
+  // ---------- control channel ----------
+  function onControl(raw) {
+    let m; try { m = JSON.parse(raw); } catch { return; }
+    if (m.t === "state") {
+      $("remoteMuted").hidden = m.mic !== false;
+      remoteCamOn = m.cam !== false;
+      updateRemoteView();
+    } else if (m.t === "bye") {
+      remoteGone("They hung up.");
+    }
+  }
+  function sendState() {
+    const dc = S.dc;
+    if (dc && dc.readyState === "open") try { dc.send(JSON.stringify({ t: "state", mic: S.micOn, cam: S.camOn })); } catch {}
   }
 
   // ---------- in call ----------
@@ -578,49 +1025,41 @@
     $("netBadge").textContent = text || "";
     $("netBadge").hidden = !text;
   }
-  function onConnected(remote) {
-    clearTimeout(S.dialTimer);
+
+  function enterStage() {
     const rv = $("remoteVideo");
-    if (rv.srcObject !== remote) rv.srcObject = remote;
+    if (rv.srcObject !== S.remoteStream) rv.srcObject = S.remoteStream;
     rv.play().then(() => ($("playBtn").hidden = true)).catch(() => {
       // Autoplay with sound was blocked (e.g. iOS after the tab sat idle).
-      // A tap anywhere starts it; the button makes that obvious.
       $("playBtn").hidden = false;
       const go = () => rv.play().then(() => ($("playBtn").hidden = true)).catch(() => {});
       addEventListener("pointerdown", go, { once: true });
     });
-    const pc = S.call && S.call.peerConnection;
-    const ice = pc && pc.iceConnectionState;
-    setNet(ice === "connected" || ice === "completed" ? null : "Connecting…");
-    S.connected = true;
-    S.retries = 0;
-
+    if (S.inStage) return;
+    S.inStage = true;
     $("localVideo").srcObject = S.localStream;
     $("previewVideo").srcObject = null;
     const ownVideo = hasVideo(S.localStream);
     $("localWrap").hidden = !ownVideo;
     $("camBtn").hidden = !ownVideo;
     updateControls();
-    updateRemoteView(remote);
-    remote.addEventListener("addtrack", () => updateRemoteView(remote));
-    remote.addEventListener("removetrack", () => updateRemoteView(remote));
-    rv.onresize = () => fitRemote();
-
+    rv.onresize = fitRemote;
+    if (!iceUp()) setNet("Connecting…");
     show("stage");
-    sendState();
-    startTimer();
-    startMeter(remote);
+    startStats();
     poke();
     checkFlip();
   }
 
-  let remoteCamOn = true;
-  function updateRemoteView(remote) {
-    remote = remote || $("remoteVideo").srcObject;
-    const vid = hasVideo(remote) && remoteCamOn;
+  function updateRemoteView() {
+    const remote = S.remoteStream;
+    if (!remote) return;
+    const vt = remote.getVideoTracks().find((t) => t.readyState === "live");
+    const sending = !!vt && !vt.muted;
+    const vid = sending && remoteCamOn;
     $("remoteVideo").style.visibility = vid ? "visible" : "hidden";
     $("avatar").hidden = vid;
-    $("avatarLabel").textContent = hasVideo(remote) ? "Camera off" : "Voice call";
+    $("avatarLabel").textContent = sending ? "Camera off" : "Voice call";
     fitRemote();
   }
   // Fill the screen when orientations match; letterbox when they don't, so a
@@ -633,17 +1072,6 @@
     $("stage").classList.toggle("contain", remotePortrait !== screenPortrait);
   }
   addEventListener("resize", fitRemote);
-
-  function applyRemoteState(m) {
-    $("remoteMuted").hidden = m.mic !== false;
-    remoteCamOn = m.cam !== false;
-    if (S.connected) updateRemoteView();
-  }
-
-  function sendState() {
-    const c = S.conn;
-    if (c && c.open) try { c.send({ t: "state", mic: S.micOn, cam: S.camOn }); } catch {}
-  }
 
   function updateControls() {
     $("micBtn").classList.toggle("off", !S.micOn);
@@ -673,94 +1101,13 @@
   }
   $("flipBtn").onclick = async () => {
     poke();
-    const next = S.facing === "user" ? "environment" : "user";
-    const old = S.localStream.getVideoTracks()[0];
-    const constraints = (f) => ({ video: { facingMode: f, width: { ideal: 1280 }, height: { ideal: 720 } } });
-    let fresh;
-    if (old) old.stop(); // many phones can't open both cameras at once
-    try {
-      fresh = (await navigator.mediaDevices.getUserMedia(constraints({ exact: next }))).getVideoTracks()[0];
-      S.facing = next;
-    } catch {
-      toast("Couldn't switch camera");
-      try { fresh = (await navigator.mediaDevices.getUserMedia(constraints(S.facing))).getVideoTracks()[0]; } catch { return; }
-    }
-    fresh.enabled = S.camOn;
-    if (old) S.localStream.removeTrack(old);
-    S.localStream.addTrack(fresh);
-    const pc = S.call && S.call.peerConnection;
-    const sender = pc && pc.getSenders().find((x) => x.track && x.track.kind === "video");
-    if (sender) await sender.replaceTrack(fresh).catch(() => {});
-    $("localVideo").srcObject = S.localStream;
-    $("localWrap").classList.toggle("rear", S.facing === "environment");
+    const ok = await reacquire("video", S.facing === "user" ? "environment" : "user");
+    if (!ok) toast("Couldn't switch camera");
   };
 
-  $("hangBtn").onclick = () => {
-    const c = S.conn;
-    if (c && c.open) try { c.send({ t: "bye" }); } catch {}
-    setTimeout(() => endCall("", false), 120);
-  };
+  $("hangBtn").onclick = () => endCall("", false);
 
-  // The other side left. A host keeps its link alive and goes back to waiting;
-  // a guest gets the "call ended" screen with a rejoin button.
-  function remoteLeft(reason) {
-    if (!S.connected && S.role === "host") return;
-    if (S.role === "host" && S.peer && !S.peer.destroyed) {
-      teardownCall();
-      toast(reason || "They left");
-      $("preview").hidden = !hasVideo(S.localStream);
-      $("previewVideo").srcObject = S.localStream;
-      showShare();
-      setWait("They left. The link still works — waiting…");
-      show("waitScreen");
-      return;
-    }
-    endCall(reason, false);
-  }
-
-  function teardownCall() {
-    S.connected = false;
-    try { S.call && S.call.close(); } catch {}
-    try { S.conn && S.conn.close(); } catch {}
-    S.call = null; S.conn = null;
-    $("remoteVideo").srcObject = null;
-    $("remoteMuted").hidden = true;
-    setNet(null);
-    $("playBtn").hidden = true;
-    stopInfo();
-    remoteCamOn = true;
-    stopTimer();
-    stopMeter();
-  }
-
-  function destroyPeer() {
-    clearTimeout(S.dialTimer);
-    if (S.peer) { const p = S.peer; S.peer = null; try { p.destroy(); } catch {} }
-  }
-
-  function endCall(reason, isError, fullCall) {
-    if (S.ended) return;
-    S.ended = true;
-    const duration = S.startedAt ? Date.now() - S.startedAt : 0;
-    teardownCall();
-    destroyPeer();
-    if (S.localStream) S.localStream.getTracks().forEach((t) => t.stop());
-    S.localStream = null;
-    $("previewVideo").srcObject = null;
-    $("localVideo").srcObject = null;
-    releaseWakeLock();
-    S.startedAt = 0;
-
-    $("endTitle").textContent = fullCall ? "Call is full" : isError ? "Couldn't connect" : "Call ended";
-    const parts = [];
-    if (reason) parts.push(reason);
-    if (duration > 1000) parts.push("Duration " + fmt(duration) + ".");
-    $("endSub").textContent = parts.join(" ");
-    $("rejoinBtn").textContent = isError ? "Try again" : "Rejoin";
-    show("endScreen");
-  }
-
-  // ---------- timer / meter / idle ----------
+  // ---------- timer / stats / meter / idle ----------
   function fmt(ms) {
     const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
     return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(ss).padStart(2, "0");
@@ -773,6 +1120,81 @@
   }
   function stopTimer() { clearInterval(S.timerId); }
 
+  // Once a second: connection quality bars, plus the info panel if open.
+  let lastStats = null, infoOpen = false;
+  function startStats() { stopStats(); S.statsTimer = setInterval(pollStats, 1000); pollStats(); }
+  function stopStats() { clearInterval(S.statsTimer); S.statsTimer = 0; lastStats = null; $("bars").hidden = true; }
+
+  async function pollStats() {
+    const pc = S.pc;
+    if (!pc) return;
+    let st;
+    try { st = await pc.getStats(); } catch { return; }
+    const by = {}; st.forEach((r) => (by[r.id] = r));
+    const now = {}; let pair = null;
+    st.forEach((r) => {
+      // There can be several streams of a kind (e.g. inactive ones after a renegotiation); use the busiest.
+      if ((r.type === "inbound-rtp" || r.type === "outbound-rtp") && r.kind) {
+        const k = r.type + r.kind, bytes = (x) => x.bytesReceived || x.bytesSent || 0;
+        if (!now[k] || bytes(r) > bytes(now[k])) now[k] = r;
+      }
+      if (r.type === "transport" && r.selectedCandidatePairId) pair = by[r.selectedCandidatePairId];
+    });
+    if (!pair) st.forEach((r) => { if (r.type === "candidate-pair" && (r.selected || r.nominated) && r.state === "succeeded") pair = r; });
+    const prev = lastStats || {};
+    const delta = (k, f) => (now[k] && prev[k] ? now[k][f] - prev[k][f] : 0);
+    const dt = now["inbound-rtpaudio"] && prev["inbound-rtpaudio"] ? (now["inbound-rtpaudio"].timestamp - prev["inbound-rtpaudio"].timestamp) / 1000 : 0;
+    const kbps = (k, f) => {
+      const a = now[k], b = prev[k];
+      if (!a || !b) return null;
+      const t = (a.timestamp - b.timestamp) / 1000;
+      return t > 0 ? Math.round(((a[f] - b[f]) * 8) / t / 1000) : null;
+    };
+    const lost = delta("inbound-rtpaudio", "packetsLost"), got = delta("inbound-rtpaudio", "packetsReceived");
+    const loss = got + lost > 0 ? (100 * lost) / (got + lost) : 0;
+    const rtt = pair && pair.currentRoundTripTime != null ? pair.currentRoundTripTime * 1000 : null;
+    lastStats = now;
+
+    // Quality: 3 bars good, 2 ok, 1 poor (thresholds roughly where calls start to feel laggy / choppy).
+    let q = 3;
+    if ((rtt != null && rtt > 300) || loss > 3) q = 2;
+    if ((rtt != null && rtt > 700) || loss > 10 || (dt && got === 0)) q = 1;
+    const bars = $("bars");
+    bars.hidden = !iceUp(pc);
+    bars.dataset.q = q;
+    bars.title = ["", "Poor connection", "OK connection", "Good connection"][q];
+
+    if (!infoOpen) return;
+    let route = "none yet";
+    if (pair) {
+      const l = by[pair.localCandidateId] || {}, r = by[pair.remoteCandidateId] || {};
+      const kind = (c) => ({ host: "local network", srflx: "internet (STUN)", prflx: "internet", relay: "TURN relay" }[c.candidateType] || c.candidateType);
+      route = (l.candidateType === "relay" || r.candidateType === "relay" ? "relayed" : "direct") +
+        "\n  you: " + kind(l) + " " + (l.relayProtocol || l.protocol || "") + "\n  them: " + kind(r);
+    }
+    const codec = (k) => { const s = now[k]; const c = s && by[s.codecId]; return c ? c.mimeType.split("/")[1] : "–"; };
+    const iv = now["inbound-rtpvideo"];
+    const v = $("remoteVideo");
+    const f = (x) => (x == null ? "–" : x + " kbps");
+    $("info").textContent = [
+      "server:  " + (S.backend ? (S.backend.kind === "worker" ? "worker" : "public PeerJS") + (S.backend.turn ? " + TURN" : ", no TURN") : "–"),
+      "ice:     " + pc.iceConnectionState + " / " + pc.connectionState + (S.restarts ? " (restarts " + S.restarts + ")" : ""),
+      "route:   " + route,
+      "rtt:     " + (rtt == null ? "–" : Math.round(rtt) + " ms") + "   audio loss: " + loss.toFixed(1) + "%",
+      "recv:    audio " + f(kbps("inbound-rtpaudio", "bytesReceived")) + " (" + codec("inbound-rtpaudio") + "), video " + f(kbps("inbound-rtpvideo", "bytesReceived")) +
+        (iv && iv.frameWidth ? " " + iv.frameWidth + "×" + iv.frameHeight + " " + Math.round(iv.framesPerSecond || 0) + "fps" : ""),
+      "send:    audio " + f(kbps("outbound-rtpaudio", "bytesSent")) + ", video " + f(kbps("outbound-rtpvideo", "bytesSent")) +
+        (pair && pair.availableOutgoingBitrate ? "  (est. " + Math.round(pair.availableOutgoingBitrate / 1000) + " kbps available)" : ""),
+      "player:  " + (v.paused ? "PAUSED" : "playing") + (v.videoWidth ? ", " + v.videoWidth + "×" + v.videoHeight : ""),
+    ].join("\n");
+  }
+  $("timer").addEventListener("click", (e) => {
+    e.stopPropagation();
+    infoOpen = !infoOpen;
+    $("info").hidden = !infoOpen;
+    if (infoOpen) { $("info").textContent = "…"; pollStats(); }
+  });
+
   // Speaking ring around the avatar when there's no video to look at.
   function startMeter(remote) {
     stopMeter();
@@ -782,15 +1204,14 @@
       S.audioCtx.resume().catch(() => {});
       const src = S.audioCtx.createMediaStreamSource(remote);
       const an = S.audioCtx.createAnalyser(); an.fftSize = 512;
-      src.connect(an); // analyser only — playback goes through the <video> element
+      src.connect(an); // analyser only; playback goes through the <video> element
       const buf = new Uint8Array(an.fftSize);
       let lvl = 0;
       const ring = $("ring");
       const loop = () => {
         an.getByteTimeDomainData(buf);
         let sum = 0; for (const v of buf) { const d = (v - 128) / 128; sum += d * d; }
-        const rms = Math.sqrt(sum / buf.length);
-        lvl = Math.max(Math.min(1, rms * 6), lvl * 0.85);
+        lvl = Math.max(Math.min(1, Math.sqrt(sum / buf.length) * 6), lvl * 0.85);
         ring.style.setProperty("--lvl", lvl.toFixed(3));
         S.meterRaf = requestAnimationFrame(loop);
       };
@@ -810,7 +1231,7 @@
     $("stage").classList.remove("idle");
     clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
-      if (S.connected && $("avatar").hidden) $("stage").classList.add("idle");
+      if (S.inStage && $("avatar").hidden && !infoOpen) $("stage").classList.add("idle");
     }, 4000);
   }
   $("stage").addEventListener("pointerdown", (e) => { if (e.target.closest("#localWrap")) return; poke(); });
@@ -842,60 +1263,26 @@
     w.addEventListener("pointerup", end); w.addEventListener("pointercancel", end);
   })();
 
-  // ---------- connection info (tap the timer) ----------
-  let infoTimer = 0, lastStats = null;
-  function stopInfo() { clearInterval(infoTimer); infoTimer = 0; lastStats = null; $("info").hidden = true; }
-  $("timer").addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (infoTimer) { stopInfo(); return; }
-    $("info").hidden = false; $("info").textContent = "…";
-    updateInfo(); infoTimer = setInterval(updateInfo, 1000);
-  });
-  async function updateInfo() {
-    const pc = S.call && S.call.peerConnection;
-    if (!pc) { $("info").textContent = "No connection"; return; }
-    const st = await pc.getStats();
-    const by = {}; st.forEach((r) => (by[r.id] = r));
-    const now = {}; let pair = null;
-    st.forEach((r) => {
-      if ((r.type === "inbound-rtp" || r.type === "outbound-rtp") && r.kind) now[r.type + r.kind] = r;
-      if (r.type === "transport" && r.selectedCandidatePairId) pair = by[r.selectedCandidatePairId];
-    });
-    if (!pair) st.forEach((r) => { if (r.type === "candidate-pair" && (r.selected || r.nominated) && r.state === "succeeded") pair = r; });
-    const kbps = (k, f) => {
-      const a = now[k], b = lastStats && lastStats[k];
-      if (!a || !b) return "–";
-      const dt = (a.timestamp - b.timestamp) / 1000;
-      return dt > 0 ? Math.round(((a[f] - b[f]) * 8) / dt / 1000) + " kbps" : "–";
-    };
-    let route = "none yet";
-    if (pair) {
-      const l = by[pair.localCandidateId] || {}, r = by[pair.remoteCandidateId] || {};
-      const kind = (c) => ({ host: "local network", srflx: "internet (STUN)", prflx: "internet", relay: "TURN relay" }[c.candidateType] || c.candidateType);
-      route = (l.candidateType === "relay" || r.candidateType === "relay" ? "relayed" : "direct") +
-        "\n  you: " + kind(l) + " " + (l.protocol || "") + "\n  them: " + kind(r);
-    }
-    const iv = now["inbound-rtpvideo"];
-    const v = $("remoteVideo");
-    $("info").textContent = [
-      "ice:     " + pc.iceConnectionState + " / " + pc.connectionState,
-      "route:   " + route,
-      "recv:    audio " + kbps("inbound-rtpaudio", "bytesReceived") + ", video " + kbps("inbound-rtpvideo", "bytesReceived") +
-        (iv && iv.frameWidth ? " " + iv.frameWidth + "×" + iv.frameHeight + " " + Math.round(iv.framesPerSecond || 0) + "fps" : ""),
-      "send:    audio " + kbps("outbound-rtpaudio", "bytesSent") + ", video " + kbps("outbound-rtpvideo", "bytesSent"),
-      "tracks:  " + ((v.srcObject && v.srcObject.getTracks().map((t) => t.kind + (t.muted ? "(muted)" : "")).join(", ")) || "none"),
-      "player:  " + (v.paused ? "PAUSED" : "playing") + (v.videoWidth ? ", " + v.videoWidth + "×" + v.videoHeight : ""),
-    ].join("\n");
-    lastStats = now;
-  }
-
-  // ---------- wake lock ----------
+  // ---------- wake lock / lifecycle ----------
   async function requestWakeLock() {
     try { if ("wakeLock" in navigator) S.wakeLock = await navigator.wakeLock.request("screen"); } catch {}
   }
   function releaseWakeLock() { try { S.wakeLock && S.wakeLock.release(); } catch {} S.wakeLock = null; }
+
+  // Coming back to the tab: re-take the wake lock, revive the signalling
+  // socket, replace capture tracks iOS killed in the background, and kick ICE
+  // if the connection died meanwhile.
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && S.localStream) requestWakeLock();
+    if (document.visibilityState !== "visible" || !S.localStream) return;
+    requestWakeLock();
+    if (S.sig) S.sig.reconnectNow();
+    for (const t of S.localStream.getTracks()) if (t.readyState === "ended") reacquire(t.kind);
+    if (S.pc && S.everUp && !iceUp()) restartIce("visible again");
+  });
+
+  addEventListener("pagehide", () => {
+    sayBye();
+    if (S.sig) S.sig.close();
   });
 
   // ---------- share / buttons ----------
@@ -912,28 +1299,15 @@
   };
   $("cancelBtn").onclick = () => { endCall("", false); route(true); };
 
-  document.querySelectorAll("[data-start]").forEach((b) => (b.onclick = () => begin(b.dataset.start, newCode())));
+  document.querySelectorAll("[data-start]").forEach((b) => (b.onclick = () => begin(b.dataset.start, rand(10))));
   document.querySelectorAll("[data-join]").forEach((b) => (b.onclick = () => begin(b.dataset.join, codeFromHash())));
-  $("newCallBtn").onclick = () => { history.replaceState(null, "", location.pathname + location.search); route(); };
-  $("endNewBtn").onclick = () => { history.replaceState(null, "", location.pathname + location.search); route(); };
+  $("newCallBtn").onclick = () => route(true);
+  $("endNewBtn").onclick = () => route(true);
   $("rejoinBtn").onclick = () => route();
-
-  addEventListener("pagehide", () => {
-    const c = S.conn;
-    if (c && c.open) try { c.send({ t: "bye" }); } catch {}
-    destroyPeer();
-  });
 
   function route(clear) {
     if (clear) history.replaceState(null, "", location.pathname + location.search);
-    const code = codeFromHash();
-    if (code) {
-      $("joinTitle").textContent = "Join call";
-      $("joinSub").textContent = "Your browser will ask for camera / microphone access.";
-      show("joinScreen");
-    } else {
-      show("startScreen");
-    }
+    show(codeFromHash() ? "joinScreen" : "startScreen");
   }
   addEventListener("hashchange", () => { if (!S.localStream) route(); });
 
@@ -941,6 +1315,7 @@
     $("startErr").textContent = "This browser doesn't support WebRTC calls.";
     $("startErr").hidden = false;
   }
+  discover().catch(() => {});
   route();
 })();
 </script>

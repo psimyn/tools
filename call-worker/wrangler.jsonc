@@ -1,0 +1,26 @@
+{
+  // Cloudflare Worker for call.html: serves the page, runs signalling rooms
+  // (one Durable Object per call link) and mints TURN credentials.
+  "name": "call",
+  "main": "src/index.js",
+  "compatibility_date": "2025-09-01",
+
+  // The built page (npm run build copies ../call.html to public/index.html).
+  // Anything under /api/ isn't a file there, so it falls through to the Worker.
+  "assets": { "directory": "./public" },
+
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
+  },
+  // SQLite-backed Durable Objects are the kind available on the Workers Free plan.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+
+  "vars": {
+    // Comma-separated origins allowed to use /api (the page's own origin is
+    // always allowed). E.g. "https://psimyn.github.io". Empty = any origin.
+    "ALLOWED_ORIGINS": ""
+  }
+  // Secrets (optional, enables Cloudflare TURN):
+  //   npx wrangler secret put TURN_KEY_ID
+  //   npx wrangler secret put TURN_KEY_API_TOKEN
+}

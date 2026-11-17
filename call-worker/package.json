@@ -1,0 +1,13 @@
+{
+  "name": "call-worker",
+  "private": true,
+  "description": "Signalling rooms + TURN credentials for call.html, on Cloudflare Workers",
+  "scripts": {
+    "build": "rm -rf public && mkdir -p public/public && cp ../call.html public/index.html && cp ../public/qrcode.js public/public/qrcode.js",
+    "dev": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
