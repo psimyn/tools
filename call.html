@@ -4,8 +4,6 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0e1013" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <title>Call</title>
 <script src="public/qrcode.js"></script>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
@@ -165,6 +163,15 @@
   .cbtn.hang { background: var(--stop); }
   .cbtn.hang svg { transform: rotate(135deg); }
   #stage.idle .controls, #stage.idle .topbar { opacity: 0; pointer-events: none; }
+  .topbar .timer { cursor: pointer; }
+  #info {
+    position: absolute; z-index: 4; left: 12px; right: 12px;
+    top: calc(env(safe-area-inset-top) + 52px); max-width: 360px;
+    background: rgba(14,16,19,0.88); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 12px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: #cfd6e2; white-space: pre-wrap; pointer-events: none;
+  }
+  #playBtn { position: absolute; z-index: 3; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 
   .toast {
     position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 110px);
@@ -256,10 +263,12 @@
     <div class="off" id="localOff" hidden><svg><use href="#i-video-off"/></svg></div>
   </div>
   <div class="topbar">
-    <span class="timer" id="timer">0:00</span>
+    <span class="timer" id="timer" title="Connection info">0:00</span>
     <span class="badge" id="remoteMuted" hidden><svg><use href="#i-mic-off"/></svg>Muted</span>
     <span class="badge warn" id="netBadge" hidden>Reconnecting…</span>
   </div>
+  <div id="info" hidden></div>
+  <button class="btn primary" id="playBtn" hidden>Tap to start audio &amp; video</button>
   <div class="controls">
     <button class="cbtn" id="micBtn" aria-label="Mute"><svg><use href="#i-mic"/></svg></button>
     <button class="cbtn" id="camBtn" aria-label="Camera off"><svg><use href="#i-video"/></svg></button>
@@ -278,6 +287,16 @@
   // Peer IDs on the public PeerJS server are global, so namespace ours.
   const ID_PREFIX = "psimyn-call-";
   const CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
+  // PeerJS's defaults (Google STUN + PeerJS's public TURN) plus more STUN
+  // servers, so devices behind awkward NATs still find a direct route.
+  const ICE = {
+    iceServers: [
+      { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+      { urls: "stun:stun.cloudflare.com:3478" },
+      { urls: ["turn:eu-0.turn.peerjs.com:3478", "turn:us-0.turn.peerjs.com:3478"], username: "peerjs", credential: "peerjsp" },
+    ],
+    sdpSemantics: "unified-plan",
+  };
 
   const screens = ["startScreen", "joinScreen", "waitScreen", "endScreen", "stage"];
   function show(id) { for (const s of screens) $(s).hidden = s !== id; }
@@ -388,12 +407,27 @@
   // Symmetric links: whoever opens the link first claims the room id and waits;
   // whoever comes second finds the id taken and calls it. So the creator can
   // reload, and it doesn't matter who opens the link first.
+  //
+  // The PeerJS server only lets an id be re-registered with the token it was
+  // first registered with. So once this tab owns a room, reuse its token,
+  // kept in sessionStorage (per tab, survives reloads). Otherwise a reload or
+  // a dropped socket gets "ID is taken" for our own room, and we'd end up
+  // dialling our own stale registration.
+  function tokenKey() { return "call-token-" + S.code; }
+  function ownedToken() { try { return sessionStorage.getItem(tokenKey()); } catch { return null; } }
+  function rememberToken(t) { try { sessionStorage.setItem(tokenKey(), t); } catch {} }
+  function randomToken() { return Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(36)).join(""); }
+
   function claimOrDial() {
     destroyPeer();
-    const peer = new Peer(ID_PREFIX + S.code, { debug: 1 });
+    clearTimeout(S.dialTimer);
+    const token = ownedToken() || randomToken();
+    // debug 0: "ID is taken" is the expected answer for the second person, not an error worth logging.
+    const peer = new Peer(ID_PREFIX + S.code, { debug: 0, token, config: ICE });
     S.peer = peer;
     peer.on("open", () => {
       if (S.peer !== peer) return;
+      rememberToken(token);
       S.role = "host";
       showShare();
       setWait("Waiting for someone to join…");
@@ -416,7 +450,7 @@
     destroyPeer();
     S.role = "guest";
     setWait("Calling…");
-    const peer = new Peer({ debug: 1 });
+    const peer = new Peer({ debug: 0, config: ICE });
     S.peer = peer;
     peer.on("open", () => {
       if (S.peer !== peer) return;
@@ -425,6 +459,15 @@
       attachConn(conn);
       const call = peer.call(target, S.localStream, { metadata: { mode: S.mode } });
       attachCall(call);
+      // If nobody answers, the room's owner is probably gone but the server
+      // hasn't noticed yet (phones often drop sockets without closing them).
+      // Go back to claiming the room; once the stale id expires we'll own it.
+      clearTimeout(S.dialTimer);
+      S.dialTimer = setTimeout(() => {
+        if (S.peer !== peer || S.connected) return;
+        if (S.retries++ < 6) { setWait("No answer yet — retrying…"); claimOrDial(); }
+        else endCall("Couldn't reach the other person. Ask them to reopen the link.", true);
+      }, 12000);
     });
     peer.on("error", (err) => {
       if (S.peer !== peer) return;
@@ -510,15 +553,17 @@
       pc.addEventListener("iceconnectionstatechange", () => {
         if (S.call !== call) return;
         const st = pc.iceConnectionState;
-        if (st === "disconnected") {
-          $("netBadge").hidden = false;
+        if (st === "checking" || st === "new") {
+          setNet("Connecting…");
+        } else if (st === "disconnected") {
+          setNet("Reconnecting…");
           clearTimeout(dropTimer);
           dropTimer = setTimeout(() => {
             if (S.call === call && pc.iceConnectionState !== "connected" && pc.iceConnectionState !== "completed")
               remoteLeft("The connection dropped.");
           }, 15000);
         } else if (st === "connected" || st === "completed") {
-          $("netBadge").hidden = true;
+          setNet(null);
           clearTimeout(dropTimer);
         } else if (st === "failed") {
           clearTimeout(dropTimer);
@@ -529,14 +574,24 @@
   }
 
   // ---------- in call ----------
+  function setNet(text) {
+    $("netBadge").textContent = text || "";
+    $("netBadge").hidden = !text;
+  }
   function onConnected(remote) {
+    clearTimeout(S.dialTimer);
     const rv = $("remoteVideo");
     if (rv.srcObject !== remote) rv.srcObject = remote;
-    rv.play().catch(() => {
-      // Autoplay with sound was blocked (iOS, if the tab sat idle) — the next tap starts it.
-      toast("Tap to hear the call");
-      addEventListener("pointerdown", () => rv.play().catch(() => {}), { once: true });
+    rv.play().then(() => ($("playBtn").hidden = true)).catch(() => {
+      // Autoplay with sound was blocked (e.g. iOS after the tab sat idle).
+      // A tap anywhere starts it; the button makes that obvious.
+      $("playBtn").hidden = false;
+      const go = () => rv.play().then(() => ($("playBtn").hidden = true)).catch(() => {});
+      addEventListener("pointerdown", go, { once: true });
     });
+    const pc = S.call && S.call.peerConnection;
+    const ice = pc && pc.iceConnectionState;
+    setNet(ice === "connected" || ice === "completed" ? null : "Connecting…");
     S.connected = true;
     S.retries = 0;
 
@@ -670,13 +725,16 @@
     S.call = null; S.conn = null;
     $("remoteVideo").srcObject = null;
     $("remoteMuted").hidden = true;
-    $("netBadge").hidden = true;
+    setNet(null);
+    $("playBtn").hidden = true;
+    stopInfo();
     remoteCamOn = true;
     stopTimer();
     stopMeter();
   }
 
   function destroyPeer() {
+    clearTimeout(S.dialTimer);
     if (S.peer) { const p = S.peer; S.peer = null; try { p.destroy(); } catch {} }
   }
 
@@ -783,6 +841,53 @@
     };
     w.addEventListener("pointerup", end); w.addEventListener("pointercancel", end);
   })();
+
+  // ---------- connection info (tap the timer) ----------
+  let infoTimer = 0, lastStats = null;
+  function stopInfo() { clearInterval(infoTimer); infoTimer = 0; lastStats = null; $("info").hidden = true; }
+  $("timer").addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (infoTimer) { stopInfo(); return; }
+    $("info").hidden = false; $("info").textContent = "…";
+    updateInfo(); infoTimer = setInterval(updateInfo, 1000);
+  });
+  async function updateInfo() {
+    const pc = S.call && S.call.peerConnection;
+    if (!pc) { $("info").textContent = "No connection"; return; }
+    const st = await pc.getStats();
+    const by = {}; st.forEach((r) => (by[r.id] = r));
+    const now = {}; let pair = null;
+    st.forEach((r) => {
+      if ((r.type === "inbound-rtp" || r.type === "outbound-rtp") && r.kind) now[r.type + r.kind] = r;
+      if (r.type === "transport" && r.selectedCandidatePairId) pair = by[r.selectedCandidatePairId];
+    });
+    if (!pair) st.forEach((r) => { if (r.type === "candidate-pair" && (r.selected || r.nominated) && r.state === "succeeded") pair = r; });
+    const kbps = (k, f) => {
+      const a = now[k], b = lastStats && lastStats[k];
+      if (!a || !b) return "–";
+      const dt = (a.timestamp - b.timestamp) / 1000;
+      return dt > 0 ? Math.round(((a[f] - b[f]) * 8) / dt / 1000) + " kbps" : "–";
+    };
+    let route = "none yet";
+    if (pair) {
+      const l = by[pair.localCandidateId] || {}, r = by[pair.remoteCandidateId] || {};
+      const kind = (c) => ({ host: "local network", srflx: "internet (STUN)", prflx: "internet", relay: "TURN relay" }[c.candidateType] || c.candidateType);
+      route = (l.candidateType === "relay" || r.candidateType === "relay" ? "relayed" : "direct") +
+        "\n  you: " + kind(l) + " " + (l.protocol || "") + "\n  them: " + kind(r);
+    }
+    const iv = now["inbound-rtpvideo"];
+    const v = $("remoteVideo");
+    $("info").textContent = [
+      "ice:     " + pc.iceConnectionState + " / " + pc.connectionState,
+      "route:   " + route,
+      "recv:    audio " + kbps("inbound-rtpaudio", "bytesReceived") + ", video " + kbps("inbound-rtpvideo", "bytesReceived") +
+        (iv && iv.frameWidth ? " " + iv.frameWidth + "×" + iv.frameHeight + " " + Math.round(iv.framesPerSecond || 0) + "fps" : ""),
+      "send:    audio " + kbps("outbound-rtpaudio", "bytesSent") + ", video " + kbps("outbound-rtpvideo", "bytesSent"),
+      "tracks:  " + ((v.srcObject && v.srcObject.getTracks().map((t) => t.kind + (t.muted ? "(muted)" : "")).join(", ")) || "none"),
+      "player:  " + (v.paused ? "PAUSED" : "playing") + (v.videoWidth ? ", " + v.videoWidth + "×" + v.videoHeight : ""),
+    ].join("\n");
+    lastStats = now;
+  }
 
   // ---------- wake lock ----------
   async function requestWakeLock() {
