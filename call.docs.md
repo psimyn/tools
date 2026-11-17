@@ -39,6 +39,14 @@ the two devices whenever the network allows.
   auto-hiding controls, call timer, a speaking ring when there's no video,
   "Reconnecting…" on ICE `disconnected` (the call is dropped after 15 s), and a
   screen wake lock.
+- ICE servers: PeerJS's defaults plus extra Google and Cloudflare STUN servers.
+  Until ICE actually connects, the call screen shows a "Connecting…" badge.
+  The other side's tracks arrive before any media flows, so without it a
+  stalled connection looked like a black, silent call.
+- **Connection info**: tap the call timer for a live panel showing ICE state,
+  route (direct over the local network / direct via STUN / TURN relay), audio and
+  video kbps in each direction, resolution/fps, and whether the player is paused.
+  If the browser blocks autoplay, a "Tap to start audio & video" button appears.
 - Remote video fills the screen when its orientation matches yours. When it
   doesn't (portrait phone ↔ landscape laptop), it's letterboxed.
 - Caveats: the public PeerJS server and TURN relays are best-effort community
