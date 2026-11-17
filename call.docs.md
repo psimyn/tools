@@ -20,7 +20,12 @@ the two devices whenever the network allows.
 - **Links are symmetric**: the link is `call.html#<code>`, and the room's peer id is
   `psimyn-call-<code>`. Whoever opens the link first claims that id and waits.
   Whoever comes second gets `unavailable-id`, so they dial it instead. The creator
-  can reload, and it doesn't matter who arrives first. Codes are 10 random characters
+  can reload, and it doesn't matter who arrives first. The PeerJS server only
+  lets an id be re-registered with its original token, so the tab that owns a
+  room keeps that token in `sessionStorage`. Without that, a reload or a dropped
+  socket on the host would get "ID is taken" for its own room. A guest whose
+  call isn't answered within 12 s (e.g. the host's registration is stale) goes
+  back to trying to claim the room, up to 6 times. Codes are 10 random characters
   (~49 bits), so links aren't guessable.
 - **Two people per call**. A third person who opens the link gets "Call is full".
 - When the guest hangs up, the host goes back to waiting and the same link still works.

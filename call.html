@@ -4,8 +4,6 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0e1013" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <title>Call</title>
 <script src="public/qrcode.js"></script>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
@@ -388,12 +386,27 @@
   // Symmetric links: whoever opens the link first claims the room id and waits;
   // whoever comes second finds the id taken and calls it. So the creator can
   // reload, and it doesn't matter who opens the link first.
+  //
+  // The PeerJS server only lets an id be re-registered with the token it was
+  // first registered with. So once this tab owns a room, reuse its token,
+  // kept in sessionStorage (per tab, survives reloads). Otherwise a reload or
+  // a dropped socket gets "ID is taken" for our own room, and we'd end up
+  // dialling our own stale registration.
+  function tokenKey() { return "call-token-" + S.code; }
+  function ownedToken() { try { return sessionStorage.getItem(tokenKey()); } catch { return null; } }
+  function rememberToken(t) { try { sessionStorage.setItem(tokenKey(), t); } catch {} }
+  function randomToken() { return Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(36)).join(""); }
+
   function claimOrDial() {
     destroyPeer();
-    const peer = new Peer(ID_PREFIX + S.code, { debug: 1 });
+    clearTimeout(S.dialTimer);
+    const token = ownedToken() || randomToken();
+    // debug 0: "ID is taken" is the expected answer for the second person, not an error worth logging.
+    const peer = new Peer(ID_PREFIX + S.code, { debug: 0, token });
     S.peer = peer;
     peer.on("open", () => {
       if (S.peer !== peer) return;
+      rememberToken(token);
       S.role = "host";
       showShare();
       setWait("Waiting for someone to join…");
@@ -416,7 +429,7 @@
     destroyPeer();
     S.role = "guest";
     setWait("Calling…");
-    const peer = new Peer({ debug: 1 });
+    const peer = new Peer({ debug: 0 });
     S.peer = peer;
     peer.on("open", () => {
       if (S.peer !== peer) return;
@@ -425,6 +438,15 @@
       attachConn(conn);
       const call = peer.call(target, S.localStream, { metadata: { mode: S.mode } });
       attachCall(call);
+      // If nobody answers, the room's owner is probably gone but the server
+      // hasn't noticed yet (phones often drop sockets without closing them).
+      // Go back to claiming the room; once the stale id expires we'll own it.
+      clearTimeout(S.dialTimer);
+      S.dialTimer = setTimeout(() => {
+        if (S.peer !== peer || S.connected) return;
+        if (S.retries++ < 6) { setWait("No answer yet — retrying…"); claimOrDial(); }
+        else endCall("Couldn't reach the other person. Ask them to reopen the link.", true);
+      }, 12000);
     });
     peer.on("error", (err) => {
       if (S.peer !== peer) return;
@@ -530,6 +552,7 @@
 
   // ---------- in call ----------
   function onConnected(remote) {
+    clearTimeout(S.dialTimer);
     const rv = $("remoteVideo");
     if (rv.srcObject !== remote) rv.srcObject = remote;
     rv.play().catch(() => {
@@ -677,6 +700,7 @@
   }
 
   function destroyPeer() {
+    clearTimeout(S.dialTimer);
     if (S.peer) { const p = S.peer; S.peer = null; try { p.destroy(); } catch {} }
   }
 
